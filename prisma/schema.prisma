@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  SUPPORT
+  COMPLIANCE
+  SUPER_ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  RESTRICTED
+  DELETED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum LedgerEntryType {
+  DEPOSIT
+  WITHDRAWAL
+  TRADE_BUY
+  TRADE_SELL
+  CONVERSION_OUT
+  CONVERSION_IN
+  TRANSFER_OUT
+  TRANSFER_IN
+  REFERRAL_REWARD
+  FEE
+  ADMIN_ADJUSTMENT
+}
+
+model User {
+  id               String        @id @default(uuid())
+  authUserId       String        @unique
+  email            String        @unique
+  displayName      String?
+  role             UserRole      @default(USER)
+  status           AccountStatus @default(ACTIVE)
+  kycStatus        KycStatus     @default(NOT_STARTED)
+  twoFactorEnabled Boolean       @default(false)
+  referredByCode   String?
+  referralCode     String        @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  ledgerEntries    LedgerEntry[]
+}
+
+model LedgerEntry {
+  id            String          @id @default(uuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id])
+  asset         String
+  amount        Decimal
+  entryType     LedgerEntryType
+  referenceType String
+  referenceId   String
+  balanceAfter  Decimal
+  createdAt     DateTime        @default(now())
+  createdBy     String?
+
+  @@index([userId, asset, createdAt])
+}
