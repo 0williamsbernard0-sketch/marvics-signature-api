@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { LedgerModule } from './modules/ledger/ledger.module';
 import { validateEnv } from './common/config/env.validation';
 
 @Module({
@@ -12,6 +13,7 @@ import { validateEnv } from './common/config/env.validation';
     }),
     PrismaModule,
     AuthModule,
+    LedgerModule,
   ],
   controllers: [],
   providers: [],
