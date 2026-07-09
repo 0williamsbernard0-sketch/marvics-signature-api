@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["marvics"]
 }
 
 enum UserRole {
@@ -12,6 +14,8 @@ enum UserRole {
   SUPPORT
   COMPLIANCE
   SUPER_ADMIN
+
+  @@schema("marvics")
 }
 
 enum AccountStatus {
@@ -19,6 +23,8 @@ enum AccountStatus {
   FROZEN
   RESTRICTED
   DELETED
+
+  @@schema("marvics")
 }
 
 enum KycStatus {
@@ -26,6 +32,8 @@ enum KycStatus {
   PENDING
   VERIFIED
   REJECTED
+
+  @@schema("marvics")
 }
 
 enum LedgerEntryType {
@@ -40,6 +48,8 @@ enum LedgerEntryType {
   REFERRAL_REWARD
   FEE
   ADMIN_ADJUSTMENT
+
+  @@schema("marvics")
 }
 
 model User {
@@ -56,7 +66,9 @@ model User {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  ledgerEntries    LedgerEntry[]
+  ledgerEntries LedgerEntry[]
+
+  @@schema("marvics")
 }
 
 model LedgerEntry {
@@ -73,4 +85,5 @@ model LedgerEntry {
   createdBy     String?
 
   @@index([userId, asset, createdAt])
+  @@schema("marvics")
 }
