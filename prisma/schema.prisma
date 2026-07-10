@@ -52,6 +52,14 @@ enum LedgerEntryType {
   @@schema("marvics")
 }
 
+enum DepositStatus {
+  PENDING
+  CONFIRMED
+  CREDITED
+  FAILED
+  @@schema("marvics")
+}
+
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -66,7 +74,8 @@ model User {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  ledgerEntries LedgerEntry[]
+  ledgerEntries    LedgerEntry[]
+  depositAddresses DepositAddress[]
 
   @@schema("marvics")
 }
@@ -85,5 +94,39 @@ model LedgerEntry {
   createdBy     String?
 
   @@index([userId, asset, createdAt])
+  @@schema("marvics")
+}
+
+model DepositAddress {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  chain       String
+  asset       String
+  address     String   @unique
+  providerRef String
+  createdAt   DateTime @default(now())
+
+  depositEvents DepositEvent[]
+
+  @@unique([userId, chain, asset])
+  @@schema("marvics")
+}
+
+model DepositEvent {
+  id                String         @id @default(uuid())
+  depositAddressId  String
+  depositAddress    DepositAddress @relation(fields: [depositAddressId], references: [id])
+  txHash            String
+  chain             String
+  asset             String
+  amount            Decimal
+  confirmations     Int            @default(0)
+  status            DepositStatus  @default(PENDING)
+  rawWebhookPayload Json
+  ledgerEntryId     String?
+  createdAt         DateTime       @default(now())
+
+  @@unique([txHash, chain])
   @@schema("marvics")
 }
