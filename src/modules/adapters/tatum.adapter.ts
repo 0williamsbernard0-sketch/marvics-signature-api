@@ -175,7 +175,7 @@ export class TatumAdapter implements WalletAdapter {
       // directly — confirmation depth should be tracked via a follow-up
       // reconciliation poll (per Doc 8 §3) rather than assumed from this event.
       confirmations: 0,
-      rawPayload: payload,
+      rawWebhookPayload: payload,
     };
   }
 
