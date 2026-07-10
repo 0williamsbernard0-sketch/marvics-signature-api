@@ -41,6 +41,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('No matching account for this token');
     }
 
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Account is not active');
+    }
+
     return {
       id: user.id,
       authUserId: user.authUserId,
