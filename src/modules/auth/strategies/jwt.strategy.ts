@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import * as jwksRsa from 'jwks-rsa';
+import { PrismaService } from '../../prisma/prisma.service';
 
 interface SupabaseJwtPayload {
   sub: string;
@@ -12,7 +13,10 @@ interface SupabaseJwtPayload {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private prisma: PrismaService,
+  ) {
     const supabaseUrl = configService.get<string>('SUPABASE_URL');
 
     super({
@@ -29,6 +33,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: SupabaseJwtPayload) {
-    return { authUserId: payload.sub, email: payload.email };
+    const user = await this.prisma.user.findUnique({
+      where: { authUserId: payload.sub },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('No matching account for this token');
+    }
+
+    return {
+      id: user.id,
+      authUserId: user.authUserId,
+      email: user.email,
+      role: user.role,
+      kycStatus: user.kycStatus,
+      status: user.status,
+    };
   }
 }
