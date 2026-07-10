@@ -19,10 +19,39 @@ export class WalletsService {
   constructor(
     private prisma: PrismaService,
     private walletAdapter: TatumAdapter,
-    private ledger: LedgerService,   // ADD
+    private ledger: LedgerService,
   ) {}
 
-  // ...existing getOrCreateAddress / listAddresses stay as-is...
+  // Idempotent: returns the existing address if {userId, chain, asset}
+  // already has one (DepositAddress has @@unique([userId, chain, asset])
+  // in schema.prisma), otherwise calls the adapter to generate a new one.
+  async getOrCreateAddress(userId: string, chain: string, asset: string) {
+    const existing = await this.prisma.depositAddress.findUnique({
+      where: { userId_chain_asset: { userId, chain, asset } },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const result = await this.walletAdapter.createDepositAddress(userId, chain, asset);
+
+    return this.prisma.depositAddress.create({
+      data: {
+        userId,
+        chain,
+        asset,
+        address: result.address,
+        providerRef: result.providerRef,
+      },
+    });
+  }
+
+  async listAddresses(userId: string) {
+    return this.prisma.depositAddress.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 
   async handleWebhook(rawPayload: unknown, signatureHeader: string) {
     const event = await this.walletAdapter.handleWebhook(rawPayload, signatureHeader);
