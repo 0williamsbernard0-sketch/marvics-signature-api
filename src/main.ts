@@ -1,7 +1,6 @@
 // main.ts
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import helmet from 'helmet';
 import * as bodyParser from 'body-parser';
 import { AppModule } from './app.module';
 
@@ -20,9 +19,6 @@ async function bootstrap() {
     '/v1/webhooks/tatum',
     bodyParser.raw({ type: 'application/json' }),
   );
-
-  // Security headers
-  app.use(helmet());
 
   // CORS — explicit allowlist. Add every frontend origin that will call this API.
   const allowedOrigins = [
