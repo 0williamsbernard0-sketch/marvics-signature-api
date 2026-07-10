@@ -1,7 +1,6 @@
 // tatum.adapter.ts
-import { Injectable, Logger, NotImplementedException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotImplementedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   WalletAdapter,
@@ -11,9 +10,6 @@ import {
   WithdrawalResult,
 } from './wallet-adapter.interface';
 
-// Maps our internal chain codes to Tatum's v3 path segment (address derivation)
-// and v4 network identifier (subscriptions). Confirm against
-// https://docs.tatum.io/docs/supported-blockchains before adding a new chain.
 const CHAIN_CONFIG: Record<string, { v3Path: string; v4Network: string; xpubEnvVar: string }> = {
   BTC: { v3Path: 'bitcoin', v4Network: 'bitcoin-testnet', xpubEnvVar: 'TATUM_BTC_XPUB' },
   ETH: { v3Path: 'ethereum', v4Network: 'ethereum-sepolia', xpubEnvVar: 'TATUM_ETH_XPUB' },
@@ -24,15 +20,13 @@ export class TatumAdapter implements WalletAdapter {
   private readonly logger = new Logger(TatumAdapter.name);
   private readonly apiKey: string;
   private readonly webhookUrl: string;
-  private readonly hmacSecret: string;
 
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
   ) {
     this.apiKey = this.configService.getOrThrow<string>('TATUM_API_KEY');
-    this.webhookUrl = this.configService.getOrThrow<string>('TATUM_WEBHOOK_URL'); // e.g. https://api.marvicssignature.com/v1/webhooks/tatum
-    this.hmacSecret = this.configService.getOrThrow<string>('TATUM_WEBHOOK_HMAC_SECRET');
+    this.webhookUrl = this.configService.getOrThrow<string>('TATUM_WEBHOOK_URL');
   }
 
   // ---------------------------------------------------------------------
@@ -47,11 +41,6 @@ export class TatumAdapter implements WalletAdapter {
 
     const xpub = this.configService.getOrThrow<string>(cfg.xpubEnvVar);
 
-    // Derivation index must be unique per xpub and assigned sequentially.
-    // We derive it from how many addresses we've already generated on this
-    // chain, with a retry loop in case two requests race on the same index
-    // (protected ultimately by DepositAddress's @@unique([userId, chain, asset])
-    // and the address column's own @unique constraint).
     const MAX_ATTEMPTS = 5;
     let lastError: unknown;
 
@@ -60,10 +49,6 @@ export class TatumAdapter implements WalletAdapter {
 
       try {
         const address = await this.deriveAddress(cfg.v3Path, xpub, index);
-
-        // Register a Tatum notification subscription so deposits to this
-        // specific address actually trigger a webhook. Without this call,
-        // the address is valid but silent.
         await this.createSubscription(cfg.v4Network, address);
 
         return {
@@ -71,8 +56,6 @@ export class TatumAdapter implements WalletAdapter {
           providerRef: `${xpub}:${index}`,
         };
       } catch (err: any) {
-        // Unique constraint violation on address (P2002) -> another request
-        // grabbed this index first. Retry with a freshly recomputed count.
         if (err?.code === 'P2002') {
           lastError = err;
           continue;
@@ -119,40 +102,26 @@ export class TatumAdapter implements WalletAdapter {
 
     if (!res.ok) {
       const body = await res.text();
-      // Don't let a subscription failure silently produce a "working" address
-      // that never actually notifies us of deposits.
       throw new Error(`Tatum subscription creation failed (${res.status}): ${body}`);
     }
   }
 
   // ---------------------------------------------------------------------
-  // Webhook verification
+  // Webhook handling
   // ---------------------------------------------------------------------
-  // IMPORTANT: the NestJS route handling POST /webhooks/tatum must be
-  // configured to capture the RAW request body (not the JSON-parsed object)
-  // for this to work, e.g.:
-  //   @Post('webhooks/tatum')
-  //   handle(@Req() req: RawBodyRequest<Request>, @Headers('x-payload-hash') sig: string) {
-  //     return this.walletsService.handleWebhook(req.rawBody, sig);
-  //   }
-  // and main.ts must enable rawBody capture: NestFactory.create(AppModule, { rawBody: true })
+  // TEMPORARY: signature verification is BYPASSED while we confirm Tatum's
+  // current HMAC mechanism (their dashboard doesn't expose the shared-secret
+  // flow the original design assumed). Testnet only, no real funds at risk.
+  //
+  // MUST be restored before Milestone 4 (withdrawals) / any mainnet use —
+  // an unverified webhook lets anyone who finds this URL fake a "deposit"
+  // and get credited for free. Revisit via Tatum's docs or support before
+  // going live with real funds.
 
   async handleWebhook(rawPayload: unknown, signatureHeader: string): Promise<VerifiedDepositEvent> {
-    if (!signatureHeader) {
-      throw new UnauthorizedException('Missing x-payload-hash header');
-    }
+    this.logger.warn('Tatum webhook signature check is currently BYPASSED — testnet only');
 
     const rawBody = Buffer.isBuffer(rawPayload) ? rawPayload : Buffer.from(JSON.stringify(rawPayload));
-
-    const expected = createHmac('sha512', this.hmacSecret).update(rawBody).digest('base64');
-
-    const a = Buffer.from(expected, 'utf8');
-    const b = Buffer.from(signatureHeader, 'utf8');
-
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      this.logger.warn('Tatum webhook signature mismatch — rejecting');
-      throw new UnauthorizedException('Invalid webhook signature');
-    }
 
     const payload = JSON.parse(rawBody.toString('utf8')) as {
       address: string;
@@ -160,9 +129,6 @@ export class TatumAdapter implements WalletAdapter {
       asset: string;
       txId: string;
       chain: string;
-      blockNumber?: number;
-      counterAddress?: string;
-      type?: string;
     };
 
     return {
@@ -171,24 +137,14 @@ export class TatumAdapter implements WalletAdapter {
       chain: payload.chain,
       asset: payload.asset,
       amount: payload.amount,
-      // Tatum's ADDRESS_EVENT payload doesn't include a confirmations count
-      // directly — confirmation depth should be tracked via a follow-up
-      // reconciliation poll (per Doc 8 §3) rather than assumed from this event.
       confirmations: 0,
       rawPayload: payload,
     };
   }
 
   // ---------------------------------------------------------------------
-  // Withdrawals — intentionally deferred to Milestone 4
+  // Withdrawals — deferred to Milestone 4
   // ---------------------------------------------------------------------
-  // Real withdrawal signing needs the mnemonic/private key, which is a much
-  // bigger security surface than deposit address derivation (xpub-only).
-  // Storing the mnemonic as a Railway env var and signing in this service
-  // is NOT the recommended path — Tatum's own guidance is to use Tatum KMS
-  // (a separate, locally-run signer) or an HSM, so the seed never sits in
-  // application memory. That decision belongs in Doc 6/Doc 8 review before
-  // Milestone 4, not bolted on here.
 
   async createWithdrawal(params: WithdrawalParams): Promise<WithdrawalResult> {
     throw new NotImplementedException(
