@@ -1,29 +1,25 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { WalletsService } from './wallets.service';
-import { AuthService } from '../auth/auth.service';
+import { Controller, Get, Post, Body, Headers, Req, UseGuards } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request } from 'express';
+import { Public } from '../../common/decorators/public.decorator';  // see note below
+// ...existing imports...
 
 @Controller('wallets')
-@UseGuards(JwtAuthGuard)
 export class WalletsController {
-  constructor(
-    private walletsService: WalletsService,
-    private authService: AuthService,
-  ) {}
+  // ...existing constructor, createAddress, listAddresses (keep @UseGuards(JwtAuthGuard) on those individually now, not at class level)...
+}
 
-  @Post('addresses')
-  async createAddress(
-    @CurrentUser() authUser: { authUserId: string; email: string },
-    @Body() body: { chain: string; asset: string },
+// Separate controller, not nested under /wallets, per Doc 4 §4 route table:
+@Controller('webhooks')
+export class WebhooksController {
+  constructor(private walletsService: WalletsService) {}
+
+  @Public()
+  @Post('tatum')
+  async tatumWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('x-payload-hash') signature: string,
   ) {
-    const user = await this.authService.findOrCreateUser(authUser.authUserId, authUser.email);
-    return this.walletsService.getOrCreateAddress(user.id, body.chain, body.asset);
-  }
-
-  @Get('addresses')
-  async listAddresses(@CurrentUser() authUser: { authUserId: string; email: string }) {
-    const user = await this.authService.findOrCreateUser(authUser.authUserId, authUser.email);
-    return this.walletsService.listAddresses(user.id);
+    return this.walletsService.handleWebhook(req.rawBody, signature);
   }
 }
