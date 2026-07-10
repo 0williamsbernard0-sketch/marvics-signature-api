@@ -4,6 +4,7 @@ export interface AddressResult {
 }
 
 export interface VerifiedDepositEvent {
+  address: string;
   txHash: string;
   chain: string;
   asset: string;
