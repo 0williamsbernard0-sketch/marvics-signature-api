@@ -1,25 +1,15 @@
+// main.ts
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  app.enableCors({
-    origin: true,
-    credentials: true,
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true, // <-- required: makes req.rawBody available
   });
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-    }),
-  );
+  app.setGlobalPrefix('v1');
+  // ...existing ValidationPipe / Helmet / CORS setup stays as-is
 
-  const port = process.env.PORT || 4000;
-  await app.listen(port);
-  console.log(`Marvics Signature API running on port ${port}`);
+  await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
-
