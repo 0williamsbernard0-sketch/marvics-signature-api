@@ -13,7 +13,7 @@ export class WalletsController {
   @UseGuards(JwtAuthGuard)
   @Post('wallets/addresses')
   async createAddress(@CurrentUser() user: { id: string }, @Body() dto: CreateDepositAddressDto) {
-    return this.walletsService.createOrGetAddress(user.id, dto.chain, dto.asset);
+    return this.walletsService.getOrCreateAddress(user.id, dto.chain, dto.asset);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -33,8 +33,8 @@ export class WalletsController {
   @Post('webhooks/tatum')
   @HttpCode(200)
   async handleWebhook(@Req() req: Request, @Headers('x-payload-hash') signature: string) {
-    // req.rawBody is populated by the rawBody:true option in main.ts (below).
+    // req.rawBody is populated by the rawBody:true option in main.ts.
     const rawBody = (req as any).rawBody as Buffer;
-    return this.walletsService.handleTatumWebhook(rawBody, signature);
+    return this.walletsService.handleWebhook(rawBody, signature);
   }
 }
