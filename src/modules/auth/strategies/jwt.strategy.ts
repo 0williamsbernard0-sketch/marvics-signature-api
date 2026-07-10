@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import * as jwksRsa from 'jwks-rsa';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { AuthService } from '../auth.service';
 
 interface SupabaseJwtPayload {
   sub: string;
@@ -15,7 +15,7 @@ interface SupabaseJwtPayload {
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
-    private prisma: PrismaService,
+    private authService: AuthService,
   ) {
     const supabaseUrl = configService.get<string>('SUPABASE_URL');
 
@@ -33,13 +33,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: SupabaseJwtPayload) {
-    const user = await this.prisma.user.findUnique({
-      where: { authUserId: payload.sub },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('No matching account for this token');
-    }
+    // Create the Marvics user row on first sight of this Supabase account,
+    // rather than requiring it to already exist.
+    const user = await this.authService.findOrCreateUser(payload.sub, payload.email);
 
     if (user.status !== 'ACTIVE') {
       throw new UnauthorizedException('Account is not active');
