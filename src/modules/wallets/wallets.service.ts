@@ -69,12 +69,7 @@ export class WalletsService {
   where: { address: event.address },
 });
 if (!address) {
-  const allAddresses = await this.prisma.depositAddress.findMany({
-    where: { chain: event.chain === 'bitcoin-testnet' ? 'BTC' : event.chain },
-  });
-  this.logger.warn(
-    `Webhook for unknown address. Incoming="${event.address}" (len=${event.address?.length}). Stored addresses: ${JSON.stringify(allAddresses.map((a) => ({ address: a.address, len: a.address.length })))}`,
-  );
+  this.logger.warn(`Webhook for unknown address ${event.address} — ignoring`);
   return null;
 }
 
