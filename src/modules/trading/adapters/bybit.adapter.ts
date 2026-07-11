@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { fetch as undiciFetch, ProxyAgent } from 'undici';
 import {
   ExchangeAdapter,
   PlaceOrderParams,
@@ -21,12 +22,21 @@ export class BybitAdapter implements ExchangeAdapter {
   private readonly apiSecret: string;
   private readonly baseUrl: string;
   private readonly recvWindow = '5000';
+  private readonly proxyAgent: ProxyAgent;
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.getOrThrow<string>('BYBIT_API_KEY');
     this.apiSecret = this.configService.getOrThrow<string>('BYBIT_API_SECRET');
     // Testnet: https://api-testnet.bybit.com | Mainnet: https://api.bybit.com
     this.baseUrl = this.configService.getOrThrow<string>('BYBIT_BASE_URL');
+
+    // Bybit blocks requests from certain countries (incl. the US) at the
+    // CloudFront edge. Railway's hosting region is one of the blocked ones,
+    // so all Bybit-bound traffic is routed through a proxy in an allowed
+    // region (UK/EU) instead of migrating the whole service's region.
+    // PROXY_URL format: http://username:password@host:port
+    const proxyUrl = this.configService.getOrThrow<string>('BYBIT_PROXY_URL');
+    this.proxyAgent = new ProxyAgent(proxyUrl);
   }
 
   // ---- signing helpers -----------------------------------------------
@@ -50,16 +60,14 @@ export class BybitAdapter implements ExchangeAdapter {
   }
 
   // Shared raw-response handler — always reads as text first, then attempts
-  // JSON parsing ourselves. This is deliberate: if Bybit ever returns an
-  // HTML error page, a plain-text block message, or a proxy/WAF response
-  // instead of JSON (e.g. a geo-restriction page), res.json() throws a
-  // useless generic SyntaxError. Reading as text first lets us surface the
-  // *actual* content in the error, which is what tells us whether this is
-  // an auth problem, a rejected order, or an infra-level block.
-  private async parseBybitResponse<T>(res: Response): Promise<BybitResponse<T>> {
+  // JSON parsing ourselves. This is deliberate: if Bybit (or a block page
+  // upstream of it) ever returns HTML/plain-text instead of JSON, the
+  // default res.json() throws a useless generic SyntaxError. Reading as
+  // text first lets us surface the *actual* content in the error.
+  private async parseBybitResponse<T>(res: Awaited<ReturnType<typeof undiciFetch>>): Promise<BybitResponse<T>> {
     const rawText = await res.text();
 
-    // Temporary debug log — remove once Bybit integration is confirmed stable.
+    // Temporary debug log — remove once proxy + Bybit integration is confirmed stable.
     console.log('BYBIT RAW RESPONSE:', res.status, rawText.slice(0, 1000));
 
     let parsed: BybitResponse<T>;
@@ -77,9 +85,10 @@ export class BybitAdapter implements ExchangeAdapter {
   private async get<T>(path: string, query: Record<string, string>): Promise<T> {
     const queryString = new URLSearchParams(query).toString();
     const headers = this.authHeaders(queryString);
-    const res = await fetch(`${this.baseUrl}${path}?${queryString}`, {
+    const res = await undiciFetch(`${this.baseUrl}${path}?${queryString}`, {
       method: 'GET',
       headers,
+      dispatcher: this.proxyAgent,
     });
 
     const body = await this.parseBybitResponse<T>(res);
@@ -97,10 +106,11 @@ export class BybitAdapter implements ExchangeAdapter {
   ): Promise<{ result: T; raw: unknown }> {
     const jsonBody = JSON.stringify(payload);
     const headers = this.authHeaders(jsonBody);
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await undiciFetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers,
       body: jsonBody,
+      dispatcher: this.proxyAgent,
     });
 
     const body = await this.parseBybitResponse<T>(res);
