@@ -49,6 +49,31 @@ export class BybitAdapter implements ExchangeAdapter {
     };
   }
 
+  // Shared raw-response handler — always reads as text first, then attempts
+  // JSON parsing ourselves. This is deliberate: if Bybit ever returns an
+  // HTML error page, a plain-text block message, or a proxy/WAF response
+  // instead of JSON (e.g. a geo-restriction page), res.json() throws a
+  // useless generic SyntaxError. Reading as text first lets us surface the
+  // *actual* content in the error, which is what tells us whether this is
+  // an auth problem, a rejected order, or an infra-level block.
+  private async parseBybitResponse<T>(res: Response): Promise<BybitResponse<T>> {
+    const rawText = await res.text();
+
+    // Temporary debug log — remove once Bybit integration is confirmed stable.
+    console.log('BYBIT RAW RESPONSE:', res.status, rawText.slice(0, 1000));
+
+    let parsed: BybitResponse<T>;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      throw new InternalServerErrorException(
+        `Bybit returned a non-JSON response (HTTP ${res.status}). ` +
+          `First 300 chars: ${rawText.slice(0, 300)}`,
+      );
+    }
+    return parsed;
+  }
+
   private async get<T>(path: string, query: Record<string, string>): Promise<T> {
     const queryString = new URLSearchParams(query).toString();
     const headers = this.authHeaders(queryString);
@@ -56,7 +81,8 @@ export class BybitAdapter implements ExchangeAdapter {
       method: 'GET',
       headers,
     });
-    const body = (await res.json()) as BybitResponse<T>;
+
+    const body = await this.parseBybitResponse<T>(res);
     if (body.retCode !== 0) {
       throw new InternalServerErrorException(
         `Bybit error ${body.retCode}: ${body.retMsg}`,
@@ -65,7 +91,10 @@ export class BybitAdapter implements ExchangeAdapter {
     return body.result;
   }
 
-  private async post<T>(path: string, payload: Record<string, unknown>): Promise<{ result: T; raw: unknown }> {
+  private async post<T>(
+    path: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ result: T; raw: unknown }> {
     const jsonBody = JSON.stringify(payload);
     const headers = this.authHeaders(jsonBody);
     const res = await fetch(`${this.baseUrl}${path}`, {
@@ -73,7 +102,8 @@ export class BybitAdapter implements ExchangeAdapter {
       headers,
       body: jsonBody,
     });
-    const body = (await res.json()) as BybitResponse<T>;
+
+    const body = await this.parseBybitResponse<T>(res);
     if (body.retCode !== 0) {
       // Not FAILED-status-worthy at the adapter level — the caller decides how
       // to represent a rejected order. Surfacing the raw Bybit message matters
