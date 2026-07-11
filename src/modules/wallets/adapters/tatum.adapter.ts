@@ -130,6 +130,8 @@ export class TatumAdapter implements WalletAdapter {
       txId: string;
       chain: string;
     };
+   
+     this.logger.warn(`RAW TATUM PAYLOAD: ${JSON.stringify(payload)}`); // TEMP DIAGNOSTIC
 
     return {
       address: payload.address,
