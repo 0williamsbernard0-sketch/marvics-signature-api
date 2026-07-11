@@ -6,36 +6,32 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    rawBody: true, // required: makes req.rawBody available for webhook signature checks
+    rawBody: true,
   });
-
   app.setGlobalPrefix('v1');
 
-  // Tatum webhook needs the raw byte buffer for HMAC signature verification,
-  // so it's excluded from the global JSON body parser via this raw-body route.
-  // IMPORTANT: this must be registered before app.use(json parser) / any global
-  // body parsing NestJS applies, and before the route is hit by other middleware.
+  // Capture the raw buffer for Tatum's webhook regardless of the exact
+  // Content-Type header sent (avoids relying on Nest's own automatic
+  // rawBody population, which only fires on an exact content-type match).
   app.use(
     '/v1/webhooks/tatum',
-    bodyParser.raw({ type: 'application/json' }),
+    bodyParser.raw({ type: '*/*' }),
+    (req, res, next) => {
+      (req as any).rawBody = req.body;
+      next();
+    },
   );
 
-  // CORS — explicit allowlist. Add every frontend origin that will call this API.
   const allowedOrigins = [
     'https://marvics-signature-web.vercel.app',
-    'http://localhost:3000', // local frontend dev
+    'http://localhost:3000',
   ];
-
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow server-to-server / curl / no-Origin requests (no browser origin header)
       if (!origin) return callback(null, true);
-
       const isAllowed =
         allowedOrigins.includes(origin) ||
-        // Vercel preview deploys, e.g. marvics-signature-web-git-<branch>-<team>.vercel.app
         /^https:\/\/marvics-signature-web-.*\.vercel\.app$/.test(origin);
-
       if (isAllowed) {
         return callback(null, true);
       }
@@ -46,7 +42,6 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // Global validation — DTOs via class-validator, strips unknown properties
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
