@@ -159,6 +159,7 @@ model Order {
   filledQty           Decimal?
   filledPrice         Decimal?
   fees                Decimal?
+  feeAsset            String?
   status              OrderStatus
   rawExchangeResponse Json
   ledgerEntryIds      String[]
