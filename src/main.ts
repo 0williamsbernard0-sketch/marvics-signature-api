@@ -2,6 +2,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import * as bodyParser from 'body-parser';
+import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -10,13 +11,10 @@ async function bootstrap() {
   });
   app.setGlobalPrefix('v1');
 
-  // Capture the raw buffer for Tatum's webhook regardless of the exact
-  // Content-Type header sent (avoids relying on Nest's own automatic
-  // rawBody population, which only fires on an exact content-type match).
   app.use(
     '/v1/webhooks/tatum',
     bodyParser.raw({ type: '*/*' }),
-    (req, res, next) => {
+    (req: Request, res: Response, next: NextFunction) => {
       (req as any).rawBody = req.body;
       next();
     },
