@@ -60,6 +60,21 @@ enum DepositStatus {
   @@schema("marvics")
 }
 
+enum OrderSide {
+  BUY
+  SELL
+  @@schema("marvics")
+}
+
+enum OrderStatus {
+  SUBMITTED
+  FILLED
+  PARTIALLY_FILLED
+  FAILED
+  CANCELLED
+  @@schema("marvics")
+}
+
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -76,6 +91,7 @@ model User {
 
   ledgerEntries    LedgerEntry[]
   depositAddresses DepositAddress[]
+  orders           Order[]
 
   @@schema("marvics")
 }
@@ -128,5 +144,27 @@ model DepositEvent {
   createdAt         DateTime       @default(now())
 
   @@unique([txHash, chain])
+  @@schema("marvics")
+}
+
+model Order {
+  id                  String      @id @default(uuid())
+  userId              String
+  user                User        @relation(fields: [userId], references: [id])
+  side                OrderSide
+  symbol              String
+  exchange            String
+  exchangeOrderId     String
+  requestedQty        Decimal
+  filledQty           Decimal?
+  filledPrice         Decimal?
+  fees                Decimal?
+  status              OrderStatus
+  rawExchangeResponse Json
+  ledgerEntryIds      String[]
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([userId, createdAt])
   @@schema("marvics")
 }
