@@ -34,7 +34,6 @@ export class WalletsService {
     }
 
     const result = await this.walletAdapter.createDepositAddress(userId, chain, asset);
-
     return this.prisma.depositAddress.create({
       data: {
         userId,
@@ -56,50 +55,83 @@ export class WalletsService {
   async handleWebhook(rawPayload: unknown, signatureHeader: string) {
     const event = await this.walletAdapter.handleWebhook(rawPayload, signatureHeader);
 
+    const address = await this.prisma.depositAddress.findUnique({
+      where: { address: event.address },
+    });
+    if (!address) {
+      this.logger.warn(`Webhook for unknown address ${event.address} — ignoring`);
+      return null;
+    }
+
+    // Use our own stored chain code (e.g. "BTC") for the confirmations
+    // threshold lookup — Tatum's webhook reports its own network name
+    // (e.g. "bitcoin-testnet"), which won't match REQUIRED_CONFIRMATIONS keys.
+    const internalChain = address.chain;
+    const required = REQUIRED_CONFIRMATIONS[internalChain] ?? 6;
+
     // Idempotency: DepositEvent has @@unique([txHash, chain]) in schema.prisma.
-    // A retried webhook for a tx we've already seen is a no-op, not a duplicate credit.
     const existing = await this.prisma.depositEvent.findUnique({
       where: { txHash_chain: { txHash: event.txHash, chain: event.chain } },
     });
-    if (existing) {
-      this.logger.log(`Duplicate webhook for tx ${event.txHash} — no-op`);
+
+    // First time we've seen this tx: create the PENDING/CONFIRMED record.
+    if (!existing) {
+      const status: DepositStatus =
+        event.confirmations >= required ? DepositStatus.CONFIRMED : DepositStatus.PENDING;
+
+      const depositEvent = await this.prisma.depositEvent.create({
+        data: {
+          depositAddressId: address.id,
+          txHash: event.txHash,
+          chain: event.chain,
+          asset: event.asset,
+          amount: event.amount,
+          confirmations: event.confirmations,
+          status,
+          rawWebhookPayload: event.rawPayload as any,
+        },
+      });
+
+      // Sub-threshold: visible as "pending" but NOT credited — this is the
+      // reorg-safety rule from Doc 8 §3.
+      if (status !== DepositStatus.CONFIRMED) {
+        return depositEvent;
+      }
+
+      return this.creditDeposit(depositEvent, address.userId, event.asset, event.amount);
+    }
+
+    // We've seen this tx before. If it's already credited, this is a genuine
+    // no-op — never credit the same tx twice.
+    if (existing.status === DepositStatus.CREDITED) {
+      this.logger.log(`Duplicate webhook for already-credited tx ${event.txHash} — no-op`);
       return existing;
     }
-    const address = await this.prisma.depositAddress.findUnique({
-  where: { address: event.address },
-});
-if (!address) {
-  this.logger.warn(`Webhook for unknown address ${event.address} — ignoring`);
-  return null;
-}
 
-    const required = REQUIRED_CONFIRMATIONS[event.chain] ?? 6;
-    const status: DepositStatus =
-      event.confirmations >= required ? DepositStatus.CONFIRMED : DepositStatus.PENDING;
-
-    const depositEvent = await this.prisma.depositEvent.create({
-      data: {
-        depositAddressId: address.id,
-        txHash: event.txHash,
-        chain: event.chain,
-        asset: event.asset,
-        amount: event.amount,
-        confirmations: event.confirmations,
-        status,
-        rawWebhookPayload: event.rawPayload as any,
-      },
+    // Otherwise: update the confirmation count. If it just crossed the
+    // threshold, credit the ledger now.
+    const updated = await this.prisma.depositEvent.update({
+      where: { id: existing.id },
+      data: { confirmations: event.confirmations },
     });
 
-    // Sub-threshold: visible as "pending" but NOT credited — this is the
-    // reorg-safety rule from Doc 8 §3.
-    if (status !== DepositStatus.CONFIRMED) {
-      return depositEvent;
+    if (event.confirmations >= required) {
+      return this.creditDeposit(updated, address.userId, event.asset, event.amount);
     }
 
+    return updated;
+  }
+
+  private async creditDeposit(
+    depositEvent: { id: string },
+    userId: string,
+    asset: string,
+    amount: string,
+  ) {
     const ledgerEntry = await this.ledger.postEntry({
-      userId: address.userId,
-      asset: event.asset,
-      amount: event.amount,          // positive = credit
+      userId,
+      asset,
+      amount, // positive = credit
       entryType: LedgerEntryType.DEPOSIT,
       referenceType: 'deposit_event',
       referenceId: depositEvent.id,
