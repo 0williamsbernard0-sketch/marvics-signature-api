@@ -8,7 +8,7 @@ import { LedgerEntryType, OrderSide, OrderStatus, Prisma } from '@prisma/client'
 export class TradingService {
   constructor(
     private prisma: PrismaService,
-    private exchange: BybitAdapter,
+    private exchange: BinanceAdapter,
     private ledger: LedgerService,
   ) {}
 
