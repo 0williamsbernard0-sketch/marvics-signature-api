@@ -4,6 +4,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
+import { TradingModule } from './modules/trading/trading.module';
 import { validateEnv } from './common/config/env.validation';
 
 @Module({
@@ -16,6 +17,7 @@ import { validateEnv } from './common/config/env.validation';
     AuthModule,
     LedgerModule,
     WalletsModule,
+    TradingModule,
   ],
   controllers: [],
   providers: [],
