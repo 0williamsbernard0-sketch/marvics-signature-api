@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { LedgerModule } from '../ledger/ledger.module';
-import { TradingService } from './trading.service';
-import { TradingController } from './trading.controller';
-import { BinanceAdapter } from './adapters/binance.adapter';
+import { TradingModule } from '../trading/trading.module';
+import { ConversionService } from './conversion.service';
+import { ConversionController } from './conversion.controller';
+
 @Module({
-  imports: [PrismaModule, LedgerModule],
-  controllers: [TradingController],
-  providers: [TradingService, BinanceAdapter],
-  exports: [TradingService, BinanceAdapter],
+  imports: [PrismaModule, LedgerModule, TradingModule],
+  controllers: [ConversionController],
+  providers: [ConversionService],
 })
-export class TradingModule {}
+export class ConversionModule {}
