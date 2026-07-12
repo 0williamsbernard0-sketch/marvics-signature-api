@@ -1,42 +1,35 @@
+```prisma
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["multiSchema"]
 }
-
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
   schemas   = ["marvics"]
 }
-
 enum UserRole {
   USER
   SUPPORT
   COMPLIANCE
   SUPER_ADMIN
-
   @@schema("marvics")
 }
-
 enum AccountStatus {
   ACTIVE
   FROZEN
   RESTRICTED
   DELETED
-
   @@schema("marvics")
 }
-
 enum KycStatus {
   NOT_STARTED
   PENDING
   VERIFIED
   REJECTED
-
   @@schema("marvics")
 }
-
 enum LedgerEntryType {
   DEPOSIT
   WITHDRAWAL
@@ -49,10 +42,8 @@ enum LedgerEntryType {
   REFERRAL_REWARD
   FEE
   ADMIN_ADJUSTMENT
-
   @@schema("marvics")
 }
-
 enum DepositStatus {
   PENDING
   CONFIRMED
@@ -60,13 +51,11 @@ enum DepositStatus {
   FAILED
   @@schema("marvics")
 }
-
 enum OrderSide {
   BUY
   SELL
   @@schema("marvics")
 }
-
 enum OrderStatus {
   SUBMITTED
   FILLED
@@ -75,7 +64,6 @@ enum OrderStatus {
   CANCELLED
   @@schema("marvics")
 }
-
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -89,14 +77,14 @@ model User {
   referralCode     String        @unique
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
-
   ledgerEntries    LedgerEntry[]
   depositAddresses DepositAddress[]
   orders           Order[]
-
+  conversions   Conversion[]
+  transfersOut  InternalTransfer[] @relation("TransferSender")
+  transfersIn   InternalTransfer[] @relation("TransferRecipient")
   @@schema("marvics")
 }
-
 model LedgerEntry {
   id            String          @id @default(uuid())
   userId        String
@@ -109,11 +97,9 @@ model LedgerEntry {
   balanceAfter  Decimal
   createdAt     DateTime        @default(now())
   createdBy     String?
-
   @@index([userId, asset, createdAt])
   @@schema("marvics")
 }
-
 model DepositAddress {
   id          String   @id @default(uuid())
   userId      String
@@ -123,13 +109,10 @@ model DepositAddress {
   address     String   @unique
   providerRef String
   createdAt   DateTime @default(now())
-
   depositEvents DepositEvent[]
-
   @@unique([userId, chain, asset])
   @@schema("marvics")
 }
-
 model DepositEvent {
   id                String         @id @default(uuid())
   depositAddressId  String
@@ -143,11 +126,9 @@ model DepositEvent {
   rawWebhookPayload Json
   ledgerEntryId     String?
   createdAt         DateTime       @default(now())
-
   @@unique([txHash, chain])
   @@schema("marvics")
 }
-
 model Order {
   id                  String      @id @default(uuid())
   userId              String
@@ -166,7 +147,35 @@ model Order {
   ledgerEntryIds      String[]
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
-
   @@index([userId, createdAt])
   @@schema("marvics")
 }
+model Conversion {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  fromAsset      String
+  toAsset        String
+  fromAmount     Decimal
+  toAmount       Decimal
+  rateUsed       Decimal
+  ledgerEntryIds String[]
+  createdAt      DateTime @default(now())
+  @@index([userId, createdAt])
+  @@schema("marvics")
+}
+model InternalTransfer {
+  id             String   @id @default(uuid())
+  senderId       String
+  sender         User     @relation("TransferSender", fields: [senderId], references: [id])
+  recipientId    String
+  recipient      User     @relation("TransferRecipient", fields: [recipientId], references: [id])
+  asset          String
+  amount         Decimal
+  ledgerEntryIds String[]
+  createdAt      DateTime @default(now())
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+  @@schema("marvics")
+}
+```
