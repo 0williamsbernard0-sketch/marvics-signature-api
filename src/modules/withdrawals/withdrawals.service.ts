@@ -171,4 +171,25 @@ export class WithdrawalsService {
       },
     });
   }
+
+  async complete(withdrawalId: string, adminId: string, txHash: string) {
+    const withdrawal = await this.prisma.withdrawalRequest.findUnique({
+      where: { id: withdrawalId },
+    });
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+    if (withdrawal.status !== WithdrawalStatus.APPROVED) {
+      throw new BadRequestException(
+        `Cannot complete a withdrawal in status ${withdrawal.status} — must be APPROVED first`,
+      );
+    }
+    return this.prisma.withdrawalRequest.update({
+      where: { id: withdrawalId },
+      data: {
+        status: WithdrawalStatus.COMPLETED,
+        txHash,
+        reviewedBy: withdrawal.reviewedBy ?? adminId,
+        reviewedAt: withdrawal.reviewedAt ?? new Date(),
+      },
+    });
+  }
 }
