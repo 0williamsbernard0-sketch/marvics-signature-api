@@ -120,9 +120,6 @@ export class TatumAdapter implements WalletAdapter {
   //   - Signature arrives in the `x-payload-hash` header.
   //   - Algorithm: HMAC-SHA512 over JSON.stringify(body), Base64-encoded
   //     (not hex — this differs from the more common GitHub/Stripe pattern).
-  //
-  // Production guard: if this ever silently reverts to a bypass, refuse to
-  // boot in production rather than ship an unverified webhook to mainnet.
   private verifySignature(rawBody: Buffer, signatureHeader: string | undefined): void {
     if (!signatureHeader) {
       throw new UnauthorizedException('Missing x-payload-hash header on Tatum webhook');
@@ -152,13 +149,17 @@ export class TatumAdapter implements WalletAdapter {
       asset: string;
       txId: string;
       chain: string;
+      blockNumber?: number;
     };
 
-    // confirmations is still hardcoded to 0 — a separate, deliberately
-    // deferred issue (handoff addendum v3 §4). Tatum appears to only fire
-    // ADDRESS_EVENT after its own internal confirmation threshold is met,
-    // so this may need to change once that's confirmed against a real
-    // captured payload. Do not "fix" this here — see §4 for the plan.
+    // Confirmed via a real captured payload (handoff addendum v3 §4): Tatum
+    // does NOT send a confirmations count, and only fires ADDRESS_EVENT once,
+    // after its OWN internal confirmation threshold is already met (1 conf for
+    // EVM, 2 for UTXO chains like BTC) — the presence of `blockNumber` here
+    // corroborates that the tx is already mined by the time we're called.
+    // `confirmations: 0` below is now purely informational/unused — the real
+    // gating logic lives in WalletsService, which no longer waits on this
+    // value. See WalletsService.handleWebhook for the actual fix.
     return {
       address: payload.address,
       txHash: payload.txId,
