@@ -132,6 +132,7 @@ export class BinanceAdapter implements ExchangeAdapter {
       status: this.mapStatus(result.status),
       filledQty: result.executedQty,
       filledPrice: avgPrice,
+      quoteAmount: result.cummulativeQuoteQty, // actual USDT spent/received — the real ledger amount
       fees: totalFees,
       feeAsset: result.fills?.[0]?.commissionAsset,
       rawResponse: result,
