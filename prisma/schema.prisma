@@ -82,6 +82,7 @@ model User {
   conversions   Conversion[]
   transfersOut  InternalTransfer[] @relation("TransferSender")
   transfersIn   InternalTransfer[] @relation("TransferRecipient")
+  auditLogs     AuditLog[]
   @@schema("marvics")
 }
 model LedgerEntry {
@@ -175,5 +176,19 @@ model InternalTransfer {
   createdAt      DateTime @default(now())
   @@index([senderId, createdAt])
   @@index([recipientId, createdAt])
+  @@schema("marvics")
+}
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  action       String   // e.g. "POST /v1/admin/freeze-account"
+  method       String
+  path         String
+  statusCode   Int?
+  requestBody  Json?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+  @@index([userId, createdAt])
   @@schema("marvics")
 }
