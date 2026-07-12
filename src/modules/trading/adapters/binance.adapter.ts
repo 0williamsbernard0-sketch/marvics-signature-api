@@ -192,6 +192,27 @@ export class BinanceAdapter implements ExchangeAdapter {
     };
   }
 
+  async getPrice(symbol: string): Promise<string> {
+    const res = await undiciFetch(`${this.baseUrl}/api/v3/ticker/price?symbol=${symbol}`, {
+      dispatcher: this.proxyAgent,
+    });
+    const rawText = await res.text();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      throw new InternalServerErrorException(
+        `Binance returned a non-JSON response for price lookup (HTTP ${res.status}): ${rawText.slice(0, 300)}`,
+      );
+    }
+    if (!res.ok || !parsed.price) {
+      throw new InternalServerErrorException(
+        `Binance error fetching price for ${symbol}: ${parsed.msg ?? rawText.slice(0, 300)}`,
+      );
+    }
+    return parsed.price;
+  }
+
   private mapStatus(binanceStatus: string): OrderResult['status'] {
     switch (binanceStatus) {
       case 'FILLED':
