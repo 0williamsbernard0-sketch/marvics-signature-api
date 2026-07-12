@@ -8,6 +8,8 @@ import { LedgerModule } from './modules/ledger/ledger.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { TradingModule } from './modules/trading/trading.module';
 import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
+import { ConversionModule } from './modules/conversion/conversion.module';
+import { TransferModule } from './modules/transfer/transfer.module';
 import { validateEnv } from './common/config/env.validation';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 @Module({
@@ -28,6 +30,8 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     WalletsModule,
     TradingModule,
     WithdrawalsModule,
+    ConversionModule,
+    TransferModule,
   ],
   controllers: [],
   providers: [
