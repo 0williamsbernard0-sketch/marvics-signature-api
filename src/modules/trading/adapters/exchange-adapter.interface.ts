@@ -27,4 +27,5 @@ export interface ExchangeAdapter {
   placeOrder(params: PlaceOrderParams): Promise<OrderResult>;
   getOrderStatus(exchangeOrderId: string, symbol: string): Promise<OrderResult>;
   getSymbolInfo(symbol: string): Promise<SymbolInfo>;
+  getPrice(symbol: string): Promise<string>;
 }
