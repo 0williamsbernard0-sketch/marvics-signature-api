@@ -4,9 +4,12 @@ import { TatumAdapter } from './adapters/tatum.adapter';
 import { LedgerService } from '../ledger/ledger.service';
 import { LedgerEntryType, DepositStatus } from '@prisma/client';
 
-// TODO: move this to a SupportedCoin.requiredConfirmations column
-// once that migration lands — hardcoded here so Milestone 2 isn't
-// blocked on a schema change.
+// NOTE (handoff addendum v3 §4, resolved): this map is no longer used to
+// gate Tatum deposits — Tatum's webhook only fires after ITS OWN internal
+// confirmation threshold is met, and never sends a confirmations count, so
+// there's nothing here for us to compare against. Confirmed against a real
+// captured payload. Kept in case a future, different wallet adapter reports
+// real escalating confirmation counts and needs this threshold again.
 const REQUIRED_CONFIRMATIONS: Record<string, number> = {
   BTC: 2,
   ETH: 12,
@@ -63,22 +66,16 @@ export class WalletsService {
       return null;
     }
 
-    // Use our own stored chain code (e.g. "BTC") for the confirmations
-    // threshold lookup — Tatum's webhook reports its own network name
-    // (e.g. "bitcoin-testnet"), which won't match REQUIRED_CONFIRMATIONS keys.
-    const internalChain = address.chain;
-    const required = REQUIRED_CONFIRMATIONS[internalChain] ?? 6;
-
     // Idempotency: DepositEvent has @@unique([txHash, chain]) in schema.prisma.
     const existing = await this.prisma.depositEvent.findUnique({
       where: { txHash_chain: { txHash: event.txHash, chain: event.chain } },
     });
 
-    // First time we've seen this tx: create the PENDING/CONFIRMED record.
+    // First time we've seen this tx: Tatum only calls this webhook after its
+    // own confirmation threshold is already satisfied (see note above), so
+    // receipt of the webhook IS the confirmation signal — credit immediately,
+    // there's no sub-threshold "pending" state to wait through anymore.
     if (!existing) {
-      const status: DepositStatus =
-        event.confirmations >= required ? DepositStatus.CONFIRMED : DepositStatus.PENDING;
-
       const depositEvent = await this.prisma.depositEvent.create({
         data: {
           depositAddressId: address.id,
@@ -86,17 +83,11 @@ export class WalletsService {
           chain: event.chain,
           asset: event.asset,
           amount: event.amount,
-          confirmations: event.confirmations,
-          status,
+          confirmations: event.confirmations, // informational only now
+          status: DepositStatus.CONFIRMED,
           rawWebhookPayload: event.rawPayload as any,
         },
       });
-
-      // Sub-threshold: visible as "pending" but NOT credited — this is the
-      // reorg-safety rule from Doc 8 §3.
-      if (status !== DepositStatus.CONFIRMED) {
-        return depositEvent;
-      }
 
       return this.creditDeposit(depositEvent, address.userId, event.asset, event.amount);
     }
@@ -108,18 +99,9 @@ export class WalletsService {
       return existing;
     }
 
-    // Otherwise: update the confirmation count. If it just crossed the
-    // threshold, credit the ledger now.
-    const updated = await this.prisma.depositEvent.update({
-      where: { id: existing.id },
-      data: { confirmations: event.confirmations },
-    });
-
-    if (event.confirmations >= required) {
-      return this.creditDeposit(updated, address.userId, event.asset, event.amount);
-    }
-
-    return updated;
+    // Existing record that isn't credited yet (e.g. one created before this
+    // fix, still stuck at PENDING) — credit it now.
+    return this.creditDeposit(existing, address.userId, event.asset, event.amount);
   }
 
   private async creditDeposit(
