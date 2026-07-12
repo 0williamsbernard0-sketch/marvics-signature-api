@@ -7,9 +7,9 @@ import { AuthModule } from './modules/auth/auth.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { TradingModule } from './modules/trading/trading.module';
+import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
 import { validateEnv } from './common/config/env.validation';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
-
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -27,6 +27,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     LedgerModule,
     WalletsModule,
     TradingModule,
+    WithdrawalsModule,
   ],
   controllers: [],
   providers: [
