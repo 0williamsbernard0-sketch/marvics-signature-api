@@ -73,6 +73,12 @@ enum WithdrawalStatus {
   FAILED
   @@schema("marvics")
 }
+enum ModerationStatus {
+  VISIBLE
+  HIDDEN
+  REMOVED
+  @@schema("marvics")
+}
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -94,6 +100,9 @@ model User {
   transfersIn   InternalTransfer[] @relation("TransferRecipient")
   auditLogs     AuditLog[]
   withdrawalRequests WithdrawalRequest[]
+  communityPosts    CommunityPost[]
+  communityComments CommunityComment[]
+  communityLikes    CommunityLike[]
   @@schema("marvics")
 }
 model LedgerEntry {
@@ -231,5 +240,41 @@ model WithdrawalSettings {
   dailyLimitInstant Decimal  @default(200)
   dailyLimitVerified Decimal @default(5000)
   updatedAt         DateTime @updatedAt
+  @@schema("marvics")
+}
+model CommunityPost {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  content     String
+  imageUrls   String[]
+  status      ModerationStatus  @default(VISIBLE)
+  moderatedBy String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  comments    CommunityComment[]
+  likes       CommunityLike[]
+  @@index([status, createdAt])
+  @@schema("marvics")
+}
+model CommunityComment {
+  id        String        @id @default(uuid())
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id])
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  content   String
+  createdAt DateTime      @default(now())
+  @@index([postId, createdAt])
+  @@schema("marvics")
+}
+model CommunityLike {
+  id        String        @id @default(uuid())
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id])
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  createdAt DateTime      @default(now())
+  @@unique([postId, userId])
   @@schema("marvics")
 }
