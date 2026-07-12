@@ -10,6 +10,7 @@ import { TradingModule } from './modules/trading/trading.module';
 import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
 import { ConversionModule } from './modules/conversion/conversion.module';
 import { TransferModule } from './modules/transfer/transfer.module';
+import { CommunityModule } from './modules/community/community.module';
 import { validateEnv } from './common/config/env.validation';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 @Module({
@@ -32,6 +33,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     WithdrawalsModule,
     ConversionModule,
     TransferModule,
+    CommunityModule,
   ],
   controllers: [],
   providers: [
