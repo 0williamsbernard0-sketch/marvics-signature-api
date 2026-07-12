@@ -1,6 +1,7 @@
 // tatum.adapter.ts
-import { Injectable, Logger, NotImplementedException } from '@nestjs/common';
+import { Injectable, Logger, NotImplementedException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   WalletAdapter,
@@ -20,6 +21,9 @@ export class TatumAdapter implements WalletAdapter {
   private readonly logger = new Logger(TatumAdapter.name);
   private readonly apiKey: string;
   private readonly webhookUrl: string;
+  // NOTE: Railway's actual variable is named TATUM_WEBHOOK_HMAC_SECRET, not
+  // TATUM_HMAC_SECRET — see handoff addendum v3 §3.1. Keep these in sync.
+  private readonly hmacSecret: string;
 
   constructor(
     private configService: ConfigService,
@@ -27,6 +31,7 @@ export class TatumAdapter implements WalletAdapter {
   ) {
     this.apiKey = this.configService.getOrThrow<string>('TATUM_API_KEY');
     this.webhookUrl = this.configService.getOrThrow<string>('TATUM_WEBHOOK_URL');
+    this.hmacSecret = this.configService.getOrThrow<string>('TATUM_WEBHOOK_HMAC_SECRET');
   }
 
   // ---------------------------------------------------------------------
@@ -109,19 +114,37 @@ export class TatumAdapter implements WalletAdapter {
   // ---------------------------------------------------------------------
   // Webhook handling
   // ---------------------------------------------------------------------
-  // TEMPORARY: signature verification is BYPASSED while we confirm Tatum's
-  // current HMAC mechanism (their dashboard doesn't expose the shared-secret
-  // flow the original design assumed). Testnet only, no real funds at risk.
+  // Signature verification restored per handoff addendum v3 §2–§3:
+  //   - HMAC secret is set account-wide via a one-time PUT /v4/subscription
+  //     call with { hmacSecret }, not exposed in Tatum's dashboard.
+  //   - Signature arrives in the `x-payload-hash` header.
+  //   - Algorithm: HMAC-SHA512 over JSON.stringify(body), Base64-encoded
+  //     (not hex — this differs from the more common GitHub/Stripe pattern).
   //
-  // MUST be restored before Milestone 4 (withdrawals) / any mainnet use —
-  // an unverified webhook lets anyone who finds this URL fake a "deposit"
-  // and get credited for free. Revisit via Tatum's docs or support before
-  // going live with real funds.
+  // Production guard: if this ever silently reverts to a bypass, refuse to
+  // boot in production rather than ship an unverified webhook to mainnet.
+  private verifySignature(rawBody: Buffer, signatureHeader: string | undefined): void {
+    if (!signatureHeader) {
+      throw new UnauthorizedException('Missing x-payload-hash header on Tatum webhook');
+    }
+
+    const expected = crypto.createHmac('sha512', this.hmacSecret).update(rawBody).digest('base64');
+
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    const providedBuf = Buffer.from(signatureHeader, 'utf8');
+
+    const isValid =
+      expectedBuf.length === providedBuf.length && crypto.timingSafeEqual(expectedBuf, providedBuf);
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid Tatum webhook signature');
+    }
+  }
 
   async handleWebhook(rawPayload: unknown, signatureHeader: string): Promise<VerifiedDepositEvent> {
-    this.logger.warn('Tatum webhook signature check is currently BYPASSED — testnet only');
-
     const rawBody = Buffer.isBuffer(rawPayload) ? rawPayload : Buffer.from(JSON.stringify(rawPayload));
+
+    this.verifySignature(rawBody, signatureHeader);
 
     const payload = JSON.parse(rawBody.toString('utf8')) as {
       address: string;
@@ -130,9 +153,12 @@ export class TatumAdapter implements WalletAdapter {
       txId: string;
       chain: string;
     };
-   
-     this.logger.warn(`RAW TATUM PAYLOAD: ${JSON.stringify(payload)}`); // TEMP DIAGNOSTIC
 
+    // confirmations is still hardcoded to 0 — a separate, deliberately
+    // deferred issue (handoff addendum v3 §4). Tatum appears to only fire
+    // ADDRESS_EVENT after its own internal confirmation threshold is met,
+    // so this may need to change once that's confirmed against a real
+    // captured payload. Do not "fix" this here — see §4 for the plan.
     return {
       address: payload.address,
       txHash: payload.txId,
