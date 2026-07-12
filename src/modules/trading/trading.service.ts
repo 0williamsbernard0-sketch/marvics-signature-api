@@ -52,12 +52,11 @@ export class TradingService {
     }
 
     const ledgerEntryIds: string[] = [];
-
-    if (side === 'BUY') {
+       if (side === 'BUY') {
       const debit = await this.ledger.postEntry({
         userId,
         asset: quoteAsset,
-        amount: `-${result.filledPrice}`,
+        amount: `-${result.quoteAmount}`,
         entryType: LedgerEntryType.TRADE_BUY,
         referenceType: 'order',
         referenceId: order.id,
@@ -83,14 +82,13 @@ export class TradingService {
       const credit = await this.ledger.postEntry({
         userId,
         asset: quoteAsset,
-        amount: result.filledPrice!,
+        amount: result.quoteAmount!,
         entryType: LedgerEntryType.TRADE_SELL,
         referenceType: 'order',
         referenceId: order.id,
       });
       ledgerEntryIds.push(debit.id, credit.id);
     }
-
     return this.prisma.order.update({
       where: { id: order.id },
       data: { ledgerEntryIds },
