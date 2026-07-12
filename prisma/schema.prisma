@@ -63,6 +63,16 @@ enum OrderStatus {
   CANCELLED
   @@schema("marvics")
 }
+enum WithdrawalStatus {
+  PENDING
+  RISK_REVIEW
+  APPROVED
+  BROADCASTING
+  COMPLETED
+  REJECTED
+  FAILED
+  @@schema("marvics")
+}
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -83,6 +93,7 @@ model User {
   transfersOut  InternalTransfer[] @relation("TransferSender")
   transfersIn   InternalTransfer[] @relation("TransferRecipient")
   auditLogs     AuditLog[]
+  withdrawalRequests WithdrawalRequest[]
   @@schema("marvics")
 }
 model LedgerEntry {
@@ -190,5 +201,35 @@ model AuditLog {
   ipAddress    String?
   createdAt    DateTime @default(now())
   @@index([userId, createdAt])
+  @@schema("marvics")
+}
+model WithdrawalRequest {
+  id                 String           @id @default(uuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id])
+  asset              String
+  amount             Decimal
+  destinationAddress String
+  tier               String           // "INSTANT" | "VERIFIED"
+  status             WithdrawalStatus @default(PENDING)
+  requiresKyc        Boolean          @default(false)
+  reviewedBy         String?
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  txHash             String?
+  ledgerEntryId      String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  @@index([userId, createdAt])
+  @@schema("marvics")
+}
+model WithdrawalSettings {
+  id                String   @id @default("singleton")
+  paused            Boolean  @default(false)
+  pausedReason      String?
+  instantTierLimit  Decimal  @default(100)
+  dailyLimitInstant Decimal  @default(200)
+  dailyLimitVerified Decimal @default(5000)
+  updatedAt         DateTime @updatedAt
   @@schema("marvics")
 }
