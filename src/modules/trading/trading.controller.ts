@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TradingService } from './trading.service';
-import { OrderSide } from '@prisma/client';
+import { CreateOrderDto } from './dto/create-order.dto';
 
 interface AuthenticatedUser {
   id: string;
@@ -14,10 +14,8 @@ export class TradingController {
   constructor(private tradingService: TradingService) {}
 
   @Post()
-  async placeOrder(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() body: { side: OrderSide; symbol: string; quantity: string },
-  ) {
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async placeOrder(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateOrderDto) {
     return this.tradingService.placeOrder(user.id, body.side, body.symbol, body.quantity);
   }
 
