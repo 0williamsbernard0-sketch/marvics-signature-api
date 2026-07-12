@@ -56,7 +56,6 @@ export class BinanceAdapter implements ExchangeAdapter {
     });
 
     const rawText = await res.text();
-    console.log('BINANCE RAW RESPONSE:', res.status, rawText.slice(0, 1000)); // temporary debug log
 
     let parsed: any;
     try {
@@ -67,11 +66,11 @@ export class BinanceAdapter implements ExchangeAdapter {
       );
     }
 
-    // FIX: the old check `parsed.code && parsed.code < 0` missed error
-    // responses where Binance sends `code: 0` alongside a rejection message
-    // (e.g. HTTP 451 geo-block). The reliable signal is the HTTP status
-    // itself, not the body's code field — Binance error bodies always come
-    // with a non-2xx status, so check that first.
+    // The old check `parsed.code && parsed.code < 0` missed error responses
+    // where Binance sends `code: 0` alongside a rejection message (e.g. HTTP
+    // 451 geo-block). The reliable signal is the HTTP status itself, not the
+    // body's code field — Binance error bodies always come with a non-2xx
+    // status, so check that first.
     if (!res.ok) {
       throw new InternalServerErrorException(
         `Binance error (HTTP ${res.status}): ${parsed.msg ?? rawText.slice(0, 300)}`,
@@ -81,6 +80,14 @@ export class BinanceAdapter implements ExchangeAdapter {
     return parsed as T;
   }
 
+  // NOTE on `quantity` semantics — deliberately asymmetric by side:
+  //   BUY  -> quoteOrderQty: spend this much of the QUOTE asset (e.g. USDT).
+  //           A BUY with quantity: '10' on BTCUSDT spends $10 worth of BTC —
+  //           this is the safest value to use for demo/testnet trial orders.
+  //   SELL -> quantity: sell this much of the BASE asset (e.g. BTC).
+  //           A SELL with quantity: '10' on BTCUSDT sells 10 BTC — NOT a
+  //           small test amount. Callers (DTO/validation layer) must not
+  //           treat `quantity` as a single unit across both sides.
   async placeOrder(params: PlaceOrderParams): Promise<OrderResult> {
     const orderParams: Record<string, string> =
       params.side === 'BUY'
