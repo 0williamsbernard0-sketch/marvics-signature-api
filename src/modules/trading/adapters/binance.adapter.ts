@@ -17,8 +17,7 @@ export class BinanceAdapter implements ExchangeAdapter {
   private readonly baseUrl: string;
   private readonly proxyAgent?: ProxyAgent;
 
-  readonly exchangeName = 'BINANCE' as const;
-   constructor(private configService: ConfigService) {
+  constructor(private configService: ConfigService) {
     this.apiKey = this.configService.getOrThrow<string>('BINANCE_API_KEY');
     this.apiSecret = this.configService.getOrThrow<string>('BINANCE_API_SECRET');
     this.baseUrl = this.configService.getOrThrow<string>('BINANCE_BASE_URL');
