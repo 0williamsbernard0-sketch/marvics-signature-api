@@ -11,6 +11,7 @@ import {
 
 @Injectable()
 export class BinanceAdapter implements ExchangeAdapter {
+  readonly exchangeName = 'BINANCE' as const;
   private readonly apiKey: string;
   private readonly apiSecret: string;
   private readonly baseUrl: string;
