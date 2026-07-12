@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BinanceAdapter } from './adapters/binance.adapter';
+import { BinanceAdapter } from '../trading/adapters/binance.adapter';
 import { LedgerService } from '../ledger/ledger.service';
 import { LedgerEntryType, Prisma } from '@prisma/client';
 
