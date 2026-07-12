@@ -6,9 +6,10 @@ export interface PlaceOrderParams {
 
 export interface OrderResult {
   exchangeOrderId: string;
-  status: 'SUBMITTED' | 'FILLED' | 'PARTIALLY_FILLED' | 'FAILED' | 'CANCELLED';
+  status: 'SUBMITTED' | 'FILLED' | 'PARTIALLY_FILLED' | 'CANCELLED' | 'FAILED';
   filledQty?: string;
-  filledPrice?: string;
+  filledPrice?: string;   // average price per unit — informational only, NOT a ledger amount
+  quoteAmount?: string;   // total quote-asset value of the fill — this IS the ledger amount
   fees?: string;
   feeAsset?: string;
   rawResponse: unknown;
