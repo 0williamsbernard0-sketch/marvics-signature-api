@@ -22,6 +22,7 @@ export interface SymbolInfo {
 }
 
 export interface ExchangeAdapter {
+  readonly exchangeName: string; // e.g. "BINANCE", "BYBIT" — single source of truth for Order.exchange
   placeOrder(params: PlaceOrderParams): Promise<OrderResult>;
   getOrderStatus(exchangeOrderId: string, symbol: string): Promise<OrderResult>;
   getSymbolInfo(symbol: string): Promise<SymbolInfo>;
