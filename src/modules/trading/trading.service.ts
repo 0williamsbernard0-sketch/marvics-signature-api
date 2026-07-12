@@ -35,7 +35,7 @@ export class TradingService {
         userId,
         side,
         symbol,
-        exchange: 'BYBIT',
+        exchange: this.exchange.exchangeName,
         exchangeOrderId: result.exchangeOrderId,
         requestedQty: new Prisma.Decimal(quantity),
         filledQty: result.filledQty ? new Prisma.Decimal(result.filledQty) : null,
