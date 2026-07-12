@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { fetch as undiciFetch, ProxyAgent } from 'undici';
 import {
   ExchangeAdapter,
   PlaceOrderParams,
@@ -13,11 +14,19 @@ export class BinanceAdapter implements ExchangeAdapter {
   private readonly apiKey: string;
   private readonly apiSecret: string;
   private readonly baseUrl: string;
+  private readonly proxyAgent?: ProxyAgent;
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.getOrThrow<string>('BINANCE_API_KEY');
     this.apiSecret = this.configService.getOrThrow<string>('BINANCE_API_SECRET');
     this.baseUrl = this.configService.getOrThrow<string>('BINANCE_BASE_URL');
+
+    // Binance also geo-blocks Railway's hosting region (HTTP 451, their own
+    // "restricted location" rejection) — same underlying issue we hit with
+    // Bybit's CloudFront block. Reusing the same UK proxy already configured
+    // for Bybit rather than setting up a second one.
+    const proxyUrl = this.configService.get<string>('BYBIT_PROXY_URL');
+    this.proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
   }
 
   // Binance v3 signing rule: HMAC_SHA256(secret, queryString), appended as
@@ -40,9 +49,10 @@ export class BinanceAdapter implements ExchangeAdapter {
     query.append('signature', signature);
 
     const url = `${this.baseUrl}${path}?${query.toString()}`;
-    const res = await fetch(url, {
+    const res = await undiciFetch(url, {
       method,
       headers: { 'X-MBX-APIKEY': this.apiKey },
+      dispatcher: this.proxyAgent,
     });
 
     const rawText = await res.text();
@@ -57,26 +67,43 @@ export class BinanceAdapter implements ExchangeAdapter {
       );
     }
 
-    if (parsed.code && parsed.code < 0) {
-      throw new InternalServerErrorException(`Binance error ${parsed.code}: ${parsed.msg}`);
+    // FIX: the old check `parsed.code && parsed.code < 0` missed error
+    // responses where Binance sends `code: 0` alongside a rejection message
+    // (e.g. HTTP 451 geo-block). The reliable signal is the HTTP status
+    // itself, not the body's code field — Binance error bodies always come
+    // with a non-2xx status, so check that first.
+    if (!res.ok) {
+      throw new InternalServerErrorException(
+        `Binance error (HTTP ${res.status}): ${parsed.msg ?? rawText.slice(0, 300)}`,
+      );
     }
 
     return parsed as T;
   }
 
   async placeOrder(params: PlaceOrderParams): Promise<OrderResult> {
+    const orderParams: Record<string, string> =
+      params.side === 'BUY'
+        ? {
+            symbol: params.symbol,
+            side: 'BUY',
+            type: 'MARKET',
+            quoteOrderQty: params.quantity, // spend this much quote-asset (e.g. USDT)
+          }
+        : {
+            symbol: params.symbol,
+            side: 'SELL',
+            type: 'MARKET',
+            quantity: params.quantity, // sell this much base-asset (e.g. BTC)
+          };
+
     const result = await this.signedRequest<{
       orderId: number;
       status: string;
       executedQty: string;
       cummulativeQuoteQty: string;
       fills: Array<{ price: string; qty: string; commission: string; commissionAsset: string }>;
-    }>('POST', '/api/v3/order', {
-      symbol: params.symbol,
-      side: params.side,
-      type: 'MARKET',
-      quantity: params.quantity,
-    });
+    }>('POST', '/api/v3/order', orderParams);
 
     const avgPrice =
       result.fills && result.fills.length > 0
@@ -120,7 +147,9 @@ export class BinanceAdapter implements ExchangeAdapter {
   }
 
   async getSymbolInfo(symbol: string): Promise<SymbolInfo> {
-    const res = await fetch(`${this.baseUrl}/api/v3/exchangeInfo?symbol=${symbol}`);
+    const res = await undiciFetch(`${this.baseUrl}/api/v3/exchangeInfo?symbol=${symbol}`, {
+      dispatcher: this.proxyAgent,
+    });
     const rawText = await res.text();
 
     let parsed: any;
@@ -129,6 +158,12 @@ export class BinanceAdapter implements ExchangeAdapter {
     } catch {
       throw new InternalServerErrorException(
         `Binance returned a non-JSON response for exchangeInfo (HTTP ${res.status}): ${rawText.slice(0, 300)}`,
+      );
+    }
+
+    if (!res.ok) {
+      throw new InternalServerErrorException(
+        `Binance error (HTTP ${res.status}): ${parsed.msg ?? rawText.slice(0, 300)}`,
       );
     }
 
