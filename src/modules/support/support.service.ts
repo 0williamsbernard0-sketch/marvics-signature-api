@@ -15,7 +15,7 @@ export class SupportService {
       data: {
         userId,
         subject,
-        messages: { create: { senderId: userId, senderRole: UserRole.USER, body } },
+        messages: { create: { senderId: userId, senderRole: UserRole.USER, content: body } },
       },
       include: { messages: true },
     });
@@ -50,7 +50,6 @@ export class SupportService {
     senderId: string,
     senderRole: UserRole,
     body: string,
-    attachmentUrls: string[] = [],
   ) {
     const ticket = await this.prisma.supportTicket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new NotFoundException('Ticket not found');
@@ -60,7 +59,7 @@ export class SupportService {
     }
 
     const message = await this.prisma.supportMessage.create({
-      data: { ticketId, senderId, senderRole, body, attachmentUrls },
+      data: { ticketId, senderId, senderRole, content: body },
     });
 
     // Move OPEN -> IN_PROGRESS the first time an agent replies.
