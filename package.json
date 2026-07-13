@@ -18,6 +18,7 @@
     "@nestjs/config": "^3.2.0",
     "@nestjs/throttler": "^6.0.0",
     "@nestjs/passport": "^10.0.3",
+    "@nestjs/swagger": "^7.4.0",
     "@prisma/client": "^5.19.0",
     "class-validator": "^0.14.1",
     "class-transformer": "^0.5.1",
