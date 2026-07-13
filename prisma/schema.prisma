@@ -85,6 +85,13 @@ enum RewardStatus {
   VOIDED
   @@schema("marvics")
 }
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  @@schema("marvics")
+}
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -110,6 +117,8 @@ model User {
   communityComments CommunityComment[]
   communityLikes    CommunityLike[]
   referralRewards    ReferralReward[]
+  notifications     Notification[]
+  supportTickets    SupportTicket[]
   @@schema("marvics")
 }
 model LedgerEntry {
@@ -306,5 +315,42 @@ model ReferralSettings {
   firstTradeReward   Decimal  @default(2)
   rewardAsset        String   @default("USDT")
   updatedAt          DateTime @updatedAt
+  @@schema("marvics")
+}
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  @@index([userId, read, createdAt])
+  @@schema("marvics")
+}
+model SupportTicket {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  subject    String
+  status     TicketStatus     @default(OPEN)
+  assignedTo String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  messages   SupportMessage[]
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@schema("marvics")
+}
+model SupportMessage {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id])
+  senderId   String
+  senderRole String
+  content    String
+  createdAt  DateTime      @default(now())
+  @@index([ticketId, createdAt])
   @@schema("marvics")
 }
