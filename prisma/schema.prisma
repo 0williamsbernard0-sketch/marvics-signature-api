@@ -2,12 +2,14 @@ generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["multiSchema"]
 }
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
   schemas   = ["marvics"]
 }
+
 enum UserRole {
   USER
   SUPPORT
@@ -15,6 +17,7 @@ enum UserRole {
   SUPER_ADMIN
   @@schema("marvics")
 }
+
 enum AccountStatus {
   ACTIVE
   FROZEN
@@ -22,6 +25,7 @@ enum AccountStatus {
   DELETED
   @@schema("marvics")
 }
+
 enum KycStatus {
   NOT_STARTED
   PENDING
@@ -29,6 +33,7 @@ enum KycStatus {
   REJECTED
   @@schema("marvics")
 }
+
 enum LedgerEntryType {
   DEPOSIT
   WITHDRAWAL
@@ -43,6 +48,7 @@ enum LedgerEntryType {
   ADMIN_ADJUSTMENT
   @@schema("marvics")
 }
+
 enum DepositStatus {
   PENDING
   CONFIRMED
@@ -50,11 +56,13 @@ enum DepositStatus {
   FAILED
   @@schema("marvics")
 }
+
 enum OrderSide {
   BUY
   SELL
   @@schema("marvics")
 }
+
 enum OrderStatus {
   SUBMITTED
   FILLED
@@ -63,6 +71,7 @@ enum OrderStatus {
   CANCELLED
   @@schema("marvics")
 }
+
 enum WithdrawalStatus {
   PENDING
   RISK_REVIEW
@@ -73,18 +82,21 @@ enum WithdrawalStatus {
   FAILED
   @@schema("marvics")
 }
+
 enum ModerationStatus {
   VISIBLE
   HIDDEN
   REMOVED
   @@schema("marvics")
 }
+
 enum RewardStatus {
   PENDING
   PAID
   VOIDED
   @@schema("marvics")
 }
+
 enum TicketStatus {
   OPEN
   IN_PROGRESS
@@ -92,6 +104,7 @@ enum TicketStatus {
   CLOSED
   @@schema("marvics")
 }
+
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -119,8 +132,10 @@ model User {
   referralRewards    ReferralReward[]
   notifications     Notification[]
   supportTickets    SupportTicket[]
+  kycSubmissions     KycSubmission[]
   @@schema("marvics")
 }
+
 model LedgerEntry {
   id            String          @id @default(uuid())
   userId        String
@@ -136,6 +151,7 @@ model LedgerEntry {
   @@index([userId, asset, createdAt])
   @@schema("marvics")
 }
+
 model DepositAddress {
   id          String   @id @default(uuid())
   userId      String
@@ -149,6 +165,7 @@ model DepositAddress {
   @@unique([userId, chain, asset])
   @@schema("marvics")
 }
+
 model DepositEvent {
   id                String         @id @default(uuid())
   depositAddressId  String
@@ -165,6 +182,7 @@ model DepositEvent {
   @@unique([txHash, chain])
   @@schema("marvics")
 }
+
 model Order {
   id                  String      @id @default(uuid())
   userId              String
@@ -186,6 +204,7 @@ model Order {
   @@index([userId, createdAt])
   @@schema("marvics")
 }
+
 model Conversion {
   id             String   @id @default(uuid())
   userId         String
@@ -200,6 +219,7 @@ model Conversion {
   @@index([userId, createdAt])
   @@schema("marvics")
 }
+
 model InternalTransfer {
   id             String   @id @default(uuid())
   senderId       String
@@ -214,6 +234,7 @@ model InternalTransfer {
   @@index([recipientId, createdAt])
   @@schema("marvics")
 }
+
 model AuditLog {
   id           String   @id @default(uuid())
   userId       String?
@@ -228,6 +249,7 @@ model AuditLog {
   @@index([userId, createdAt])
   @@schema("marvics")
 }
+
 model WithdrawalRequest {
   id                 String           @id @default(uuid())
   userId             String
@@ -248,6 +270,7 @@ model WithdrawalRequest {
   @@index([userId, createdAt])
   @@schema("marvics")
 }
+
 model WithdrawalSettings {
   id                String   @id @default("singleton")
   paused            Boolean  @default(false)
@@ -258,6 +281,7 @@ model WithdrawalSettings {
   updatedAt         DateTime @updatedAt
   @@schema("marvics")
 }
+
 model CommunityPost {
   id          String            @id @default(uuid())
   userId      String
@@ -273,6 +297,7 @@ model CommunityPost {
   @@index([status, createdAt])
   @@schema("marvics")
 }
+
 model CommunityComment {
   id        String        @id @default(uuid())
   postId    String
@@ -284,6 +309,7 @@ model CommunityComment {
   @@index([postId, createdAt])
   @@schema("marvics")
 }
+
 model CommunityLike {
   id        String        @id @default(uuid())
   postId    String
@@ -294,6 +320,7 @@ model CommunityLike {
   @@unique([postId, userId])
   @@schema("marvics")
 }
+
 model ReferralReward {
   id             String       @id @default(uuid())
   referrerId     String
@@ -309,6 +336,7 @@ model ReferralReward {
   @@index([referrerId, createdAt])
   @@schema("marvics")
 }
+
 model ReferralSettings {
   id                 String   @id @default("singleton")
   firstDepositReward Decimal  @default(5)
@@ -317,6 +345,7 @@ model ReferralSettings {
   updatedAt          DateTime @updatedAt
   @@schema("marvics")
 }
+
 model Notification {
   id        String    @id @default(uuid())
   userId    String
@@ -330,6 +359,7 @@ model Notification {
   @@index([userId, read, createdAt])
   @@schema("marvics")
 }
+
 model SupportTicket {
   id         String           @id @default(uuid())
   userId     String
@@ -344,6 +374,7 @@ model SupportTicket {
   @@index([status, createdAt])
   @@schema("marvics")
 }
+
 model SupportMessage {
   id             String        @id @default(uuid())
   ticketId       String
@@ -354,5 +385,23 @@ model SupportMessage {
   attachmentUrls String[]      @default([])
   createdAt      DateTime      @default(now())
   @@index([ticketId, createdAt])
+  @@schema("marvics")
+}
+
+model KycSubmission {
+  id                 String    @id @default(uuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id])
+  idDocumentPath     String    // private Supabase Storage path, not a public URL
+  selfiePath         String
+  proofOfAddressPath String
+  status             KycStatus @default(PENDING)
+  reviewedBy         String?
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
   @@schema("marvics")
 }
