@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TatumAdapter } from './adapters/tatum.adapter';
 import { LedgerService } from '../ledger/ledger.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { LedgerEntryType, DepositStatus } from '@prisma/client';
 
 // NOTE (handoff addendum v3 §4, resolved): this map is no longer used to
@@ -23,6 +24,7 @@ export class WalletsService {
     private prisma: PrismaService,
     private walletAdapter: TatumAdapter,
     private ledger: LedgerService,
+    private referrals: ReferralsService,
   ) {}
 
   // Idempotent: returns the existing address if {userId, chain, asset}
@@ -119,10 +121,21 @@ export class WalletsService {
       referenceId: depositEvent.id,
     });
 
-    return this.prisma.depositEvent.update({
+    const updated = await this.prisma.depositEvent.update({
       where: { id: depositEvent.id },
       data: { status: DepositStatus.CREDITED, ledgerEntryId: ledgerEntry.id },
     });
+
+    // Referral trigger — idempotent via ReferralReward's unique constraint,
+    // safe even if this deposit path is ever hit twice for the same user.
+    // Fire-and-forget-safe: a failure here should never block a real credit.
+    try {
+      await this.referrals.triggerReward(userId, 'first_deposit');
+    } catch (err) {
+      this.logger.error(`Referral trigger failed for user ${userId}: ${err}`);
+    }
+
+    return updated;
   }
 
   async listDeposits(userId: string) {
