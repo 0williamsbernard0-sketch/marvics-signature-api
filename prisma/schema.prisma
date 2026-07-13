@@ -79,6 +79,12 @@ enum ModerationStatus {
   REMOVED
   @@schema("marvics")
 }
+enum RewardStatus {
+  PENDING
+  PAID
+  VOIDED
+  @@schema("marvics")
+}
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -103,6 +109,7 @@ model User {
   communityPosts    CommunityPost[]
   communityComments CommunityComment[]
   communityLikes    CommunityLike[]
+  referralRewards    ReferralReward[]
   @@schema("marvics")
 }
 model LedgerEntry {
@@ -276,5 +283,28 @@ model CommunityLike {
   user      User          @relation(fields: [userId], references: [id])
   createdAt DateTime      @default(now())
   @@unique([postId, userId])
+  @@schema("marvics")
+}
+model ReferralReward {
+  id             String       @id @default(uuid())
+  referrerId     String
+  referrer       User         @relation(fields: [referrerId], references: [id])
+  referredUserId String
+  triggerEvent   String       // "first_deposit" | "first_trade"
+  asset          String
+  amount         Decimal
+  status         RewardStatus @default(PAID)
+  ledgerEntryId  String?
+  createdAt      DateTime     @default(now())
+  @@unique([referredUserId, triggerEvent])
+  @@index([referrerId, createdAt])
+  @@schema("marvics")
+}
+model ReferralSettings {
+  id                 String   @id @default("singleton")
+  firstDepositReward Decimal  @default(5)
+  firstTradeReward   Decimal  @default(2)
+  rewardAsset        String   @default("USDT")
+  updatedAt          DateTime @updatedAt
   @@schema("marvics")
 }
