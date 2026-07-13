@@ -11,6 +11,8 @@ import { WithdrawalsModule } from './modules/withdrawals/withdrawals.module';
 import { ConversionModule } from './modules/conversion/conversion.module';
 import { TransferModule } from './modules/transfer/transfer.module';
 import { CommunityModule } from './modules/community/community.module';
+import { ReferralsModule } from './modules/referrals/referrals.module';
+import { PortfolioModule } from './modules/portfolio/portfolio.module';
 import { validateEnv } from './common/config/env.validation';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 @Module({
@@ -34,6 +36,8 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     ConversionModule,
     TransferModule,
     CommunityModule,
+    ReferralsModule,
+    PortfolioModule,
   ],
   controllers: [],
   providers: [
