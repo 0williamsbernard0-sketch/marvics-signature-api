@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BinanceAdapter } from './adapters/binance.adapter';
 import { LedgerService } from '../ledger/ledger.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { LedgerEntryType, OrderSide, OrderStatus, Prisma } from '@prisma/client';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class TradingService {
     private prisma: PrismaService,
     private exchange: BinanceAdapter,
     private ledger: LedgerService,
+    private referrals: ReferralsService,
   ) {}
 
   async placeOrder(userId: string, side: OrderSide, symbol: string, quantity: string) {
@@ -52,7 +54,7 @@ export class TradingService {
     }
 
     const ledgerEntryIds: string[] = [];
-       if (side === 'BUY') {
+    if (side === 'BUY') {
       const debit = await this.ledger.postEntry({
         userId,
         asset: quoteAsset,
@@ -89,6 +91,16 @@ export class TradingService {
       });
       ledgerEntryIds.push(debit.id, credit.id);
     }
+
+    // Referral trigger — idempotent, safe on retries, never blocks the trade.
+    try {
+      await this.referrals.triggerReward(userId, 'first_trade');
+    } catch (err) {
+      // Deliberately swallowed the same way a webhook failure is in
+      // WalletsService — a referral-payout failure must never roll back
+      // or fail an already-executed trade.
+    }
+
     return this.prisma.order.update({
       where: { id: order.id },
       data: { ledgerEntryIds },
