@@ -13,6 +13,8 @@ import { TransferModule } from './modules/transfer/transfer.module';
 import { CommunityModule } from './modules/community/community.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
 import { PortfolioModule } from './modules/portfolio/portfolio.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SupportModule } from './modules/support/support.module';
 import { validateEnv } from './common/config/env.validation';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 @Module({
@@ -38,6 +40,8 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     CommunityModule,
     ReferralsModule,
     PortfolioModule,
+    NotificationsModule,
+    SupportModule,
   ],
   controllers: [],
   providers: [
