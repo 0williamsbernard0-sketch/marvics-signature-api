@@ -34,7 +34,7 @@ export class NotificationsService {
     // scoped to userId so one user can't mark another user's notification read
     return this.prisma.notification.updateMany({
       where: { id: notificationId, userId },
-      data: { read: true },
+      data: { read: true, readAt: new Date() },
     });
   }
 }
