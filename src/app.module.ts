@@ -13,6 +13,7 @@ import { TransferModule } from './modules/transfer/transfer.module';
 import { CommunityModule } from './modules/community/community.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
 import { PortfolioModule } from './modules/portfolio/portfolio.module';
+import { KycModule } from './modules/kyc/kyc.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SupportModule } from './modules/support/support.module';
 import { validateEnv } from './common/config/env.validation';
