@@ -12,7 +12,7 @@ export class NotificationsService {
   /** Called by other modules (support, wallets, withdrawals, referrals...) — not exposed over HTTP. */
   async create(userId: string, type: NotificationType, title: string, body: string) {
     return this.prisma.notification.create({
-      data: { userId, type, title, body },
+      data: { userId, type, title, message: body },
     });
   }
 
@@ -21,8 +21,8 @@ export class NotificationsService {
       where: { userId },
       take: limit + 1,
       ...(cursor && { cursor: { id: cursor }, skip: 1 }),
-      // unread-first, then newest-first within each group
-      orderBy: [{ readAt: 'asc' }, { createdAt: 'desc' }],
+      // unread-first (read: false sorts before true), then newest-first within each group
+      orderBy: [{ read: 'asc' }, { createdAt: 'desc' }],
     });
 
     const hasMore = notifications.length > limit;
@@ -34,7 +34,7 @@ export class NotificationsService {
     // scoped to userId so one user can't mark another user's notification read
     return this.prisma.notification.updateMany({
       where: { id: notificationId, userId },
-      data: { readAt: new Date() },
+      data: { read: true },
     });
   }
 }
