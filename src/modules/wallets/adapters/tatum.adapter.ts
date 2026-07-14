@@ -107,6 +107,23 @@ export class TatumAdapter implements WalletAdapter {
 
     if (!res.ok) {
       const body = await res.text();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = null;
+      }
+
+      // Idempotent case: a subscription for this exact address+currency+url
+      // already exists (e.g. a prior attempt succeeded here but failed to
+      // persist the DepositAddress row afterward). The subscription is still
+      // correctly in place on Tatum's side, so this isn't a real failure —
+      // just continue as if creation succeeded.
+      if (res.status === 403 && parsed?.errorCode === 'subscription.exists.on.address-and-currency') {
+        this.logger.warn(`Subscription already exists for ${address} — treating as success.`);
+        return;
+      }
+
       throw new Error(`Tatum subscription creation failed (${res.status}): ${body}`);
     }
   }
