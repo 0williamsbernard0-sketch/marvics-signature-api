@@ -20,18 +20,18 @@ export class LedgerService {
    * The ONLY way any entry gets written to LedgerEntry.
    * No other module/service should ever call prisma.ledgerEntry directly.
    */
-  async postEntry(params: PostEntryParams) {
+    async postEntry(params: PostEntryParams, tx?: Prisma.TransactionClient) {
     const { userId, asset, amount, entryType, referenceType, referenceId, createdBy } = params;
 
     if (entryType === 'ADMIN_ADJUSTMENT' && !createdBy) {
       throw new BadRequestException('ADMIN_ADJUSTMENT entries require createdBy');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const currentBalance = await this.getBalanceInternal(tx, userId, asset);
+    const run = async (client: Prisma.TransactionClient) => {
+      const currentBalance = await this.getBalanceInternal(client, userId, asset);
       const newBalance = currentBalance.plus(new Prisma.Decimal(amount));
 
-      return tx.ledgerEntry.create({
+      return client.ledgerEntry.create({
         data: {
           userId,
           asset,
@@ -43,12 +43,19 @@ export class LedgerService {
           createdBy: createdBy ?? null,
         },
       });
-    });
+    };
+
+    // If a transaction was passed in, run inside it (caller controls atomicity).
+    // Otherwise, open our own — same behavior as before for existing callers.
+    if (tx) {
+      return run(tx);
+    }
+    return this.prisma.$transaction(run);
   }
 
   /** Read-only: current balance for a user+asset, derived by replaying ledger entries. */
-  async getBalance(userId: string, asset: string): Promise<Prisma.Decimal> {
-    return this.getBalanceInternal(this.prisma, userId, asset);
+  async getBalance(userId: string, asset: string, tx?: Prisma.TransactionClient): Promise<Prisma.Decimal> {
+    return this.getBalanceInternal(tx ?? this.prisma, userId, asset);
   }
 
   private async getBalanceInternal(
