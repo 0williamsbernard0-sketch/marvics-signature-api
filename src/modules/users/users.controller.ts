@@ -6,23 +6,23 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UserRole } from '@prisma/client';
-
 interface AuthenticatedAdmin {
   id: string;
   role: UserRole;
 }
-
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.COMPLIANCE, UserRole.SUPER_ADMIN)
 export class UsersController {
   constructor(private users: UsersService) {}
-
   @Get()
   async search(@Query('q') q?: string) {
     return this.users.search(q);
   }
-
+  @Get('stats')
+  async stats() {
+    return this.users.getDashboardStats();
+  }
   @Post(':id/status')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async updateStatus(
