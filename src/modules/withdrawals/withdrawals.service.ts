@@ -89,7 +89,7 @@ export class WithdrawalsService {
       referenceId: `pending-${Date.now()}`,
     });
 
-    const withdrawal = await this.prisma.withdrawalRequest.create({
+        const withdrawal = await this.prisma.withdrawalRequest.create({
       data: {
         userId,
         asset,
@@ -102,8 +102,27 @@ export class WithdrawalsService {
       },
     });
 
+    // Audit log this request — same as admin actions already log, but
+    // written directly since this isn't triggered through an @Roles() route.
+    await this.prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'WITHDRAWAL_REQUESTED',
+        method: 'INTERNAL',
+        path: '/withdrawals',
+        statusCode: 201,
+        requestBody: {
+          asset,
+          amount: amount.toString(),
+          destinationAddress,
+        },
+        ipAddress: null,
+      },
+    });
+
     return withdrawal;
   }
+
 
   async listWithdrawals(userId: string) {
     return this.prisma.withdrawalRequest.findMany({
