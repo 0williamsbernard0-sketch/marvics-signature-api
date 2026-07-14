@@ -39,15 +39,38 @@ export class WalletsService {
     }
 
     const result = await this.walletAdapter.createDepositAddress(userId, chain, asset);
-    return this.prisma.depositAddress.create({
-      data: {
-        userId,
-        chain,
-        asset,
-        address: result.address,
-        providerRef: result.providerRef,
-      },
-    });
+
+    try {
+      return await this.prisma.depositAddress.create({
+        data: {
+          userId,
+          chain,
+          asset,
+          address: result.address,
+          providerRef: result.providerRef,
+        },
+      });
+    } catch (err: any) {
+      // If persistence fails after Tatum already succeeded (subscription
+      // created, address derived), don't leave the caller with a thrown
+      // error and an orphaned Tatum subscription. Re-check: another
+      // concurrent call, or a previous partial failure, may have already
+      // saved this exact row.
+      const recovered = await this.prisma.depositAddress.findUnique({
+        where: { userId_chain_asset: { userId, chain, asset } },
+      });
+      if (recovered) {
+        this.logger.warn(
+          `depositAddress.create failed for ${userId}/${chain}/${asset} but a row already exists — recovering.`,
+        );
+        return recovered;
+      }
+      // Genuinely unrecoverable — surface the real error.
+      this.logger.error(
+        `Failed to persist DepositAddress for ${userId}/${chain}/${asset} after Tatum succeeded: ${err}`,
+      );
+      throw err;
+    }
   }
 
   async listAddresses(userId: string) {
