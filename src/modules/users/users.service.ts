@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AccountStatus, UserRole } from '@prisma/client';
+import { AccountStatus, UserRole, Prisma } from '@prisma/client';
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
@@ -27,7 +27,6 @@ export class UsersService {
       },
     });
   }
-
   async getDashboardStats() {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -41,7 +40,7 @@ export class UsersService {
       kycGroups,
       depositAgg,
       withdrawalAgg,
-      balanceRows,
+      latestEntries,
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { createdAt: { gte: startOfToday } } }),
@@ -56,21 +55,31 @@ export class UsersService {
         where: { entryType: 'WITHDRAWAL' },
         _sum: { amount: true },
       }),
-      // Latest balanceAfter per user+asset, summed by asset — gives total
-      // held per asset across all users without double-counting old entries.
-      this.prisma.$queryRaw<{ asset: string; total: string }[]>`
-        SELECT asset, SUM("balanceAfter") as total FROM (
-          SELECT DISTINCT ON ("userId", asset) asset, "balanceAfter"
-          FROM "LedgerEntry"
-          ORDER BY "userId", asset, "createdAt" DESC
-        ) latest
-        GROUP BY asset
-      `,
+      // Latest ledger row per user+asset — Prisma's `distinct` + matching
+      // `orderBy` mirrors Postgres's DISTINCT ON, but goes through the
+      // Prisma client (which resolves the correct table name itself)
+      // instead of a raw SQL query that has to guess it.
+      this.prisma.ledgerEntry.findMany({
+        distinct: ['userId', 'asset'],
+        orderBy: [{ userId: 'asc' }, { asset: 'asc' }, { createdAt: 'desc' }],
+        select: { asset: true, balanceAfter: true },
+      }),
     ]);
     const kycBreakdown: Record<string, number> = {};
     for (const group of kycGroups) {
       kycBreakdown[group.kycStatus] = group._count._all;
     }
+    // Sum the latest per-user balance for each asset in JS — small dataset,
+    // fine to aggregate here rather than in the DB.
+    const balanceByAsset: Record<string, Prisma.Decimal> = {};
+    for (const entry of latestEntries) {
+      const current = balanceByAsset[entry.asset] ?? new Prisma.Decimal(0);
+      balanceByAsset[entry.asset] = current.add(entry.balanceAfter);
+    }
+    const balancesByAsset = Object.entries(balanceByAsset).map(([asset, total]) => ({
+      asset,
+      total: total.toString(),
+    }));
     return {
       users: {
         total: totalUsers,
@@ -84,14 +93,12 @@ export class UsersService {
         totalWithdrawalVolume: withdrawalAgg._sum.amount
           ? withdrawalAgg._sum.amount.abs().toString()
           : '0',
-        balancesByAsset: balanceRows,
+        balancesByAsset,
       },
-      // Not built yet — surfaced honestly rather than showing fake zeros.
       subscriptions: { status: 'coming_soon' },
       signals: { status: 'coming_soon' },
     };
   }
-
   // Only SUPER_ADMIN may mark an account DELETED — COMPLIANCE can freeze/
   // restrict/reactivate but not permanently delete.
   async updateStatus(userId: string, status: AccountStatus, adminRole: UserRole) {
