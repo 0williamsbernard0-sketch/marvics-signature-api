@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
 import { TatumAdapter } from '../wallets/adapters/tatum.adapter';
 import { LedgerEntryType, WithdrawalStatus, Prisma } from '@prisma/client';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class WithdrawalsService {
@@ -34,6 +35,14 @@ export class WithdrawalsService {
     );
   }
 
+  // Deterministic lock key derived from userId+asset, used with Postgres
+  // advisory locks so concurrent withdrawal requests for the SAME user+asset
+  // serialize instead of racing. Different users/assets never block each other.
+  private lockKeyFor(userId: string, asset: string): bigint {
+    const hash = crypto.createHash('sha256').update(`${userId}:${asset}`).digest();
+    return hash.readBigInt64BE(0) & BigInt('0x7FFFFFFFFFFFFFFF');
+  }
+
   async requestWithdrawal(
     userId: string,
     asset: string,
@@ -49,86 +58,118 @@ export class WithdrawalsService {
     }
 
     const amount = new Prisma.Decimal(amountStr);
+    const lockKey = this.lockKeyFor(userId, asset);
 
-    const balance = await this.ledger.getBalance(userId, asset);
-    if (balance.lt(amount)) {
-      throw new BadRequestException(`Insufficient ${asset} balance`);
+    // FIX (race condition): balance check, 24h volume check, and debit are
+    // now wrapped in a single serializable transaction with an advisory
+    // lock scoped to this userId+asset. Two concurrent requests for the
+    // same user+asset now serialize instead of both reading stale state
+    // and both passing validation before either commits.
+    const MAX_RETRIES = 2;
+    let withdrawal: Awaited<ReturnType<typeof this.prisma.withdrawalRequest.create>> | undefined;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        withdrawal = await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$queryRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+
+            const balance = await this.ledger.getBalance(userId, asset, tx);
+            if (balance.lt(amount)) {
+              throw new BadRequestException(`Insufficient ${asset} balance`);
+            }
+
+            const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+
+            const isVerifiedTier = amount.gte(settings.instantTierLimit);
+            const tier = isVerifiedTier ? 'VERIFIED' : 'INSTANT';
+
+            if (isVerifiedTier && user.kycStatus !== 'VERIFIED') {
+              throw new ForbiddenException(
+                `This withdrawal amount requires identity verification. Please complete KYC first.`,
+              );
+            }
+
+            const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const recentWithdrawals = await tx.withdrawalRequest.findMany({
+              where: {
+                userId,
+                asset,
+                createdAt: { gte: since },
+                status: { notIn: [WithdrawalStatus.REJECTED, WithdrawalStatus.FAILED] },
+              },
+            });
+            const recentTotal = recentWithdrawals.reduce(
+              (sum, w) => sum.add(w.amount),
+              new Prisma.Decimal(0),
+            );
+            const dailyLimit = isVerifiedTier ? settings.dailyLimitVerified : settings.dailyLimitInstant;
+            if (recentTotal.add(amount).gt(dailyLimit)) {
+              throw new BadRequestException(
+                `This withdrawal would exceed your 24-hour limit of ${dailyLimit} ${asset}`,
+              );
+            }
+
+            // Debit immediately on request — funds are committed the moment a
+            // withdrawal is accepted, per Doc 8's design. Broadcast status is
+            // tracked separately via WithdrawalRequest.status.
+            const debit = await this.ledger.postEntry(
+              {
+                userId,
+                asset,
+                amount: amount.neg().toString(),
+                entryType: LedgerEntryType.WITHDRAWAL,
+                referenceType: 'withdrawal_request',
+                referenceId: `pending-${Date.now()}`,
+              },
+              tx,
+            );
+
+            const created = await tx.withdrawalRequest.create({
+              data: {
+                userId,
+                asset,
+                amount,
+                destinationAddress,
+                tier,
+                requiresKyc: isVerifiedTier,
+                status: isVerifiedTier ? WithdrawalStatus.RISK_REVIEW : WithdrawalStatus.APPROVED,
+                ledgerEntryId: debit.id,
+              },
+            });
+
+            // Audit log this request — same as admin actions already log, but
+            // written directly since this isn't triggered through an @Roles() route.
+            await tx.auditLog.create({
+              data: {
+                userId,
+                action: 'WITHDRAWAL_REQUESTED',
+                method: 'INTERNAL',
+                path: '/withdrawals',
+                statusCode: 201,
+                requestBody: {
+                  asset,
+                  amount: amount.toString(),
+                  destinationAddress,
+                },
+                ipAddress: null,
+              },
+            });
+
+            return created;
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+        break; // success — exit retry loop
+      } catch (err: any) {
+        // P2034 = Prisma's code for a serialization conflict — expected
+        // occasionally under real concurrency, safe to retry a couple times.
+        if (err?.code === 'P2034' && attempt < MAX_RETRIES) {
+          continue;
+        }
+        throw err;
+      }
     }
-
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-
-    const isVerifiedTier = amount.gte(settings.instantTierLimit);
-    const tier = isVerifiedTier ? 'VERIFIED' : 'INSTANT';
-
-    if (isVerifiedTier && user.kycStatus !== 'VERIFIED') {
-      throw new ForbiddenException(
-        `This withdrawal amount requires identity verification. Please complete KYC first.`,
-      );
-    }
-
-    // Rolling 24h volume check, per tier limit.
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentWithdrawals = await this.prisma.withdrawalRequest.findMany({
-      where: {
-        userId,
-        asset,
-        createdAt: { gte: since },
-        status: { notIn: [WithdrawalStatus.REJECTED, WithdrawalStatus.FAILED] },
-      },
-    });
-    const recentTotal = recentWithdrawals.reduce(
-      (sum, w) => sum.add(w.amount),
-      new Prisma.Decimal(0),
-    );
-    const dailyLimit = isVerifiedTier ? settings.dailyLimitVerified : settings.dailyLimitInstant;
-    if (recentTotal.add(amount).gt(dailyLimit)) {
-      throw new BadRequestException(
-        `This withdrawal would exceed your 24-hour limit of ${dailyLimit} ${asset}`,
-      );
-    }
-
-    // Debit immediately on request — funds are committed the moment a
-    // withdrawal is accepted, per Doc 8's design. Broadcast status is
-    // tracked separately via WithdrawalRequest.status.
-    const debit = await this.ledger.postEntry({
-      userId,
-      asset,
-      amount: amount.neg().toString(),
-      entryType: LedgerEntryType.WITHDRAWAL,
-      referenceType: 'withdrawal_request',
-      referenceId: `pending-${Date.now()}`,
-    });
-
-    const withdrawal = await this.prisma.withdrawalRequest.create({
-      data: {
-        userId,
-        asset,
-        amount,
-        destinationAddress,
-        tier,
-        requiresKyc: isVerifiedTier,
-        status: isVerifiedTier ? WithdrawalStatus.RISK_REVIEW : WithdrawalStatus.APPROVED,
-        ledgerEntryId: debit.id,
-      },
-    });
-
-    // Audit log this request — same as admin actions already log, but
-    // written directly since this isn't triggered through an @Roles() route.
-    await this.prisma.auditLog.create({
-      data: {
-        userId,
-        action: 'WITHDRAWAL_REQUESTED',
-        method: 'INTERNAL',
-        path: '/withdrawals',
-        statusCode: 201,
-        requestBody: {
-          asset,
-          amount: amount.toString(),
-          destinationAddress,
-        },
-        ipAddress: null,
-      },
-    });
 
     // FIX (bug #2): instant-tier withdrawals were being created as APPROVED
     // and then never touched again — approve() (which actually broadcasts)
@@ -136,11 +177,11 @@ export class WithdrawalsService {
     // withdrawals skip that queue entirely, so they need to broadcast right
     // here, immediately after creation, instead of sitting at APPROVED
     // forever with no automated path forward.
-    if (!isVerifiedTier) {
-      return this.broadcastAndFinalize(withdrawal.id);
+    if (withdrawal!.tier === 'INSTANT') {
+      return this.broadcastAndFinalize(withdrawal!.id);
     }
 
-    return withdrawal;
+    return withdrawal!;
   }
 
   async listWithdrawals(userId: string) {
