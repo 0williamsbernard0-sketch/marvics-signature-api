@@ -18,6 +18,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { SupportModule } from './modules/support/support.module';
 import { validateEnv } from './common/config/env.validation';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -41,6 +42,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     CommunityModule,
     ReferralsModule,
     PortfolioModule,
+    KycModule,
     NotificationsModule,
     SupportModule,
   ],
