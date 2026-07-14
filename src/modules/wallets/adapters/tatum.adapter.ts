@@ -11,9 +11,22 @@ import {
   WithdrawalResult,
 } from './wallet-adapter.interface';
 
-const CHAIN_CONFIG: Record<string, { v3Path: string; v4Network: string; xpubEnvVar: string }> = {
-  BTC: { v3Path: 'bitcoin', v4Network: 'bitcoin-testnet', xpubEnvVar: 'TATUM_BTC_XPUB' },
-  ETH: { v3Path: 'ethereum', v4Network: 'ethereum-sepolia', xpubEnvVar: 'TATUM_ETH_XPUB' },
+const CHAIN_CONFIG: Record<
+  string,
+  { v3Path: string; v4Network: string; xpubEnvVar: string; privateKeyEnvVar: string }
+> = {
+  BTC: {
+    v3Path: 'bitcoin',
+    v4Network: 'bitcoin-testnet',
+    xpubEnvVar: 'TATUM_BTC_XPUB',
+    privateKeyEnvVar: 'TATUM_BTC_PRIVATE_KEY',
+  },
+  ETH: {
+    v3Path: 'ethereum',
+    v4Network: 'ethereum-sepolia',
+    xpubEnvVar: 'TATUM_ETH_XPUB',
+    privateKeyEnvVar: 'TATUM_ETH_PRIVATE_KEY',
+  },
 };
 
 @Injectable()
@@ -189,12 +202,90 @@ export class TatumAdapter implements WalletAdapter {
   }
 
   // ---------------------------------------------------------------------
-  // Withdrawals — deferred to Milestone 4
+  // Withdrawals — Milestone 4, testnet-custodial approach
   // ---------------------------------------------------------------------
-
+  // SECURITY NOTE: this signs using a raw private key passed directly to
+  // Tatum's API, read from an env var. This is only safe for TESTNET keys
+  // with no real value. Before mainnet / real customer funds, this must be
+  // replaced with the AWS/GCP KMS approach (build+sign separately, private
+  // key never enters this app's memory or env at all).
   async createWithdrawal(params: WithdrawalParams): Promise<WithdrawalResult> {
-    throw new NotImplementedException(
-      'Withdrawals are scoped for Milestone 4 and require a KMS/signing design decision first',
-    );
+    const cfg = CHAIN_CONFIG[params.asset];
+    if (!cfg) {
+      throw new NotImplementedException(`Chain ${params.asset} is not yet configured for withdrawals`);
+    }
+
+    const privateKey = this.configService.getOrThrow<string>(cfg.privateKeyEnvVar);
+    const fromAddress = this.configService.getOrThrow<string>(`TATUM_${params.asset}_SOURCE_ADDRESS`);
+
+    if (params.asset === 'BTC') {
+      return this.broadcastBtcWithdrawal(fromAddress, privateKey, params);
+    }
+    if (params.asset === 'ETH') {
+      return this.broadcastEthWithdrawal(privateKey, params);
+    }
+
+    throw new NotImplementedException(`No broadcast logic implemented for ${params.asset}`);
+  }
+
+  private async broadcastBtcWithdrawal(
+    fromAddress: string,
+    privateKey: string,
+    params: WithdrawalParams,
+  ): Promise<WithdrawalResult> {
+    const res = await fetch('https://api.tatum.io/v3/bitcoin/transaction', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+      },
+      body: JSON.stringify({
+        fromAddress: [{ address: fromAddress, privateKey }],
+        to: [{ address: params.destinationAddress, value: Number(params.amount) }],
+      }),
+    });
+
+    const rawResponse = await res.json();
+
+    if (!res.ok) {
+      throw new Error(`Tatum BTC withdrawal broadcast failed (${res.status}): ${JSON.stringify(rawResponse)}`);
+    }
+
+    return {
+      providerRef: rawResponse.txId,
+      txHash: rawResponse.txId,
+      rawResponse,
+    };
+  }
+
+  private async broadcastEthWithdrawal(
+    privateKey: string,
+    params: WithdrawalParams,
+  ): Promise<WithdrawalResult> {
+    const res = await fetch('https://api.tatum.io/v3/ethereum/transaction', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+      },
+      body: JSON.stringify({
+        fromPrivateKey: privateKey,
+        to: params.destinationAddress,
+        amount: params.amount,
+        currency: 'ETH',
+      }),
+    });
+
+    const rawResponse = await res.json();
+
+    if (!res.ok) {
+      throw new Error(`Tatum ETH withdrawal broadcast failed (${res.status}): ${JSON.stringify(rawResponse)}`);
+    }
+
+    return {
+      providerRef: rawResponse.txId,
+      txHash: rawResponse.txId,
+      rawResponse,
+    };
   }
 }
