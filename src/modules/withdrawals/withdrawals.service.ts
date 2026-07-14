@@ -1,13 +1,23 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LedgerService } from '../ledger/ledger.service';
+import { TatumAdapter } from '../wallets/adapters/tatum.adapter';
 import { LedgerEntryType, WithdrawalStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class WithdrawalsService {
+  private readonly logger = new Logger(WithdrawalsService.name);
+
   constructor(
     private prisma: PrismaService,
     private ledger: LedgerService,
+    private walletAdapter: TatumAdapter,
   ) {}
 
   private async getSettings() {
@@ -89,7 +99,7 @@ export class WithdrawalsService {
       referenceId: `pending-${Date.now()}`,
     });
 
-        const withdrawal = await this.prisma.withdrawalRequest.create({
+    const withdrawal = await this.prisma.withdrawalRequest.create({
       data: {
         userId,
         asset,
@@ -120,9 +130,18 @@ export class WithdrawalsService {
       },
     });
 
+    // FIX (bug #2): instant-tier withdrawals were being created as APPROVED
+    // and then never touched again — approve() (which actually broadcasts)
+    // only runs for RISK_REVIEW items reached via the admin queue. Instant
+    // withdrawals skip that queue entirely, so they need to broadcast right
+    // here, immediately after creation, instead of sitting at APPROVED
+    // forever with no automated path forward.
+    if (!isVerifiedTier) {
+      return this.broadcastAndFinalize(withdrawal.id);
+    }
+
     return withdrawal;
   }
-
 
   async listWithdrawals(userId: string) {
     return this.prisma.withdrawalRequest.findMany({
@@ -150,14 +169,71 @@ export class WithdrawalsService {
       throw new BadRequestException(`Cannot approve a withdrawal in status ${withdrawal.status}`);
     }
 
-    return this.prisma.withdrawalRequest.update({
+    await this.prisma.withdrawalRequest.update({
       where: { id: withdrawalId },
       data: {
-        status: WithdrawalStatus.APPROVED,
         reviewedBy: adminId,
         reviewedAt: new Date(),
       },
     });
+
+    return this.broadcastAndFinalize(withdrawalId);
+  }
+
+  // FIX (bug #1 + #2): shared broadcast logic used by both the instant-tier
+  // path (called directly from requestWithdrawal) and the admin-approved
+  // path (called from approve). Previously this logic lived only inside
+  // approve() and its failure branch never refunded the user — it just
+  // marked the withdrawal FAILED and left the debit in place. Now both
+  // paths get identical, correct behavior: move to BROADCASTING, attempt
+  // the broadcast, and on failure, refund the debited amount back to the
+  // user's ledger before marking FAILED — mirroring reject()'s refund.
+  private async broadcastAndFinalize(withdrawalId: string) {
+    const withdrawal = await this.prisma.withdrawalRequest.findUniqueOrThrow({
+      where: { id: withdrawalId },
+    });
+
+    await this.prisma.withdrawalRequest.update({
+      where: { id: withdrawalId },
+      data: { status: WithdrawalStatus.BROADCASTING },
+    });
+
+    try {
+      const result = await this.walletAdapter.createWithdrawal({
+        asset: withdrawal.asset,
+        amount: withdrawal.amount.toString(),
+        destinationAddress: withdrawal.destinationAddress,
+      });
+
+      return await this.prisma.withdrawalRequest.update({
+        where: { id: withdrawalId },
+        data: {
+          status: WithdrawalStatus.COMPLETED,
+          txHash: result.txHash,
+        },
+      });
+    } catch (err: any) {
+      // Refund: the debit happened at request time, but the broadcast never
+      // went through, so the user must get their balance back — otherwise
+      // funds are stuck debited with no way to recover them.
+      await this.ledger.postEntry({
+        userId: withdrawal.userId,
+        asset: withdrawal.asset,
+        amount: withdrawal.amount.toString(), // positive = credit back
+        entryType: LedgerEntryType.ADMIN_ADJUSTMENT,
+        referenceType: 'withdrawal_broadcast_failure',
+        referenceId: withdrawal.id,
+        createdBy: withdrawal.reviewedBy ?? withdrawal.userId,
+      });
+
+      const failed = await this.prisma.withdrawalRequest.update({
+        where: { id: withdrawalId },
+        data: { status: WithdrawalStatus.FAILED },
+      });
+
+      this.logger.error(`Withdrawal broadcast failed for ${withdrawalId}, refunded user: ${err}`);
+      return failed;
+    }
   }
 
   async reject(withdrawalId: string, adminId: string, reason: string) {
