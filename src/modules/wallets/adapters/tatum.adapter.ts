@@ -239,9 +239,9 @@ export class TatumAdapter implements WalletAdapter {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey,
       },
-      body: JSON.stringify({
+            body: JSON.stringify({
         fromAddress: [{ address: fromAddress, privateKey }],
-        to: [{ address: params.destinationAddress, value: Number(params.amount) }],
+        to: [{ address: params.destinationAddress, value: params.amount }],
       }),
     });
 
