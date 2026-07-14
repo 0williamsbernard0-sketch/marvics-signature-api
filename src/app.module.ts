@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { TradingModule } from './modules/trading/trading.module';
@@ -33,6 +34,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     ]),
     PrismaModule,
     AuthModule,
+    UsersModule,
     LedgerModule,
     WalletsModule,
     TradingModule,
