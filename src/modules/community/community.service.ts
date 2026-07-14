@@ -22,8 +22,8 @@ export class CommunityService {
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      include: {
-        user: { select: { id: true, displayName: true } },
+            include: {
+        user: { select: { id: true, displayName: true, email: true } },
         _count: { select: { comments: true, likes: true } },
       },
     });
