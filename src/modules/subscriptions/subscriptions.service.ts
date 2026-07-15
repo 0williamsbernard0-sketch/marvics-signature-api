@@ -25,6 +25,40 @@ export class SubscriptionsService {
     private config: ConfigService,
   ) {}
 
+  // Aggregates every Subscription row a user has ever had into a single
+  // current-status view. A user can accumulate multiple rows over time
+  // (renewals, plan changes), so "active" here means ANY row currently
+  // grants that access and hasn't expired -- not just the most recent row.
+  async getStatus(userId: string) {
+    const now = new Date();
+    const subs = await this.prisma.subscription.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const telegramActive = subs.some((s) => s.telegramActive && s.telegramExpiresAt && s.telegramExpiresAt > now);
+    const signalActive = subs.some((s) => s.signalActive && s.signalExpiresAt && s.signalExpiresAt > now);
+
+    const telegramExpiresAt = subs
+      .filter((s) => s.telegramActive && s.telegramExpiresAt && s.telegramExpiresAt > now)
+      .reduce<Date | null>((latest, s) => (!latest || s.telegramExpiresAt! > latest ? s.telegramExpiresAt : latest), null);
+
+    const signalExpiresAt = subs
+      .filter((s) => s.signalActive && s.signalExpiresAt && s.signalExpiresAt > now)
+      .reduce<Date | null>((latest, s) => (!latest || s.signalExpiresAt! > latest ? s.signalExpiresAt : latest), null);
+
+    // Most recent unused invite link, if the user hasn't joined yet.
+    const pendingInvite = subs.find((s) => s.telegramInviteLink && !s.telegramInviteUsed);
+
+    return {
+      telegramActive,
+      telegramExpiresAt,
+      signalActive,
+      signalExpiresAt,
+      telegramInviteLink: pendingInvite?.telegramInviteLink ?? null,
+    };
+  }
+
   async initiatePaystackCheckout(userId: string, email: string, plan: SubscriptionPlan) {
     const cfg = PLAN_CONFIG[plan];
     if (!cfg) throw new BadRequestException('Unknown plan');
@@ -97,14 +131,26 @@ export class SubscriptionsService {
   }
 
   private async activateFromPayment(provider: PaymentProvider, providerRef: string, rawPayload: any) {
-    const payment = await this.prisma.payment.findUnique({ where: { provider_providerRef: { provider, providerRef } } });
-    if (!payment) return; // unknown reference — ignore, don't throw (webhook retries would loop)
-    if (payment.status === PaymentStatus.CONFIRMED) return; // idempotent
+    // The idempotency check-and-flip (read payment.status, confirm it's not
+    // already CONFIRMED, then write CONFIRMED) is wrapped in a transaction
+    // so two near-simultaneous webhook redeliveries for the same payment
+    // can't both read "not yet confirmed" before either has written back --
+    // Paystack and NOWPayments both retry webhook delivery, so this isn't
+    // a hypothetical race.
+    const payment = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.payment.findUnique({
+        where: { provider_providerRef: { provider, providerRef } },
+      });
+      if (!existing) return null; // unknown reference — ignore, don't throw (webhook retries would loop)
+      if (existing.status === PaymentStatus.CONFIRMED) return null; // already processed, idempotent no-op
 
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: PaymentStatus.CONFIRMED, rawWebhookPayload: rawPayload },
+      return tx.payment.update({
+        where: { id: existing.id },
+        data: { status: PaymentStatus.CONFIRMED, rawWebhookPayload: rawPayload },
+      });
     });
+
+    if (!payment) return;
 
     const cfg = PLAN_CONFIG[payment.plan];
     const expiresAt = new Date(Date.now() + cfg.days * 24 * 60 * 60 * 1000);
