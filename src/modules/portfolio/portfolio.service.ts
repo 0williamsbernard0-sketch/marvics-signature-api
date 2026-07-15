@@ -1,3 +1,65 @@
+Update portfolio.service.ts
+
+Add the BinanceAdapter dependency and extend getPortfolio()
+
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { BinanceAdapter } from '../trading/adapters/binance.adapter';
+@Injectable()
+export class PortfolioService {
+  private readonly logger = new Logger(PortfolioService.name);
+  constructor(
+    private prisma: PrismaService,
+    private binance: BinanceAdapter,
+  ) {}
+  // Portfolio is derived, never stored — this is the project's core rule
+  // that balances only exist as replayed ledger state.
+  async getPortfolio(userId: string) {
+    const assets = await this.prisma.ledgerEntry.groupBy({
+      by: ['asset'],
+      where: { userId },
+    });
+    const balances = await Promise.all(
+      assets.map(async ({ asset }: { asset: string }) => {
+        const latest = await this.prisma.ledgerEntry.findFirst({
+          where: { userId, asset },
+          orderBy: { createdAt: 'desc' },
+        });
+        return { asset, balance: latest?.balanceAfter?.toString() ?? '0' };
+      }),
+    );
+    // Stablecoins are treated as ~$1 — no live pair needed and avoids a
+    // failed lookup for symbols like "USDTUSDT" that don't exist.
+    const STABLECOINS = new Set(['USDT', 'USDC', 'BUSD']);
+    const balancesWithUsd = await Promise.all(
+      balances.map(async (b) => {
+        const amount = parseFloat(b.balance);
+        if (STABLECOINS.has(b.asset)) {
+          return { ...b, usdValue: b.balance };
+        }
+        try {
+          const price = await this.binance.getPrice(`${b.asset}USDT`);
+          return { ...b, usdValue: (amount * parseFloat(price)).toFixed(2) };
+        } catch (err) {
+          // Price lookup failure shouldn't break the whole portfolio view —
+          // just omit USD value for that asset and log it.
+          this.logger.warn(`Failed to fetch USD price for ${b.asset}: ${err}`);
+          return { ...b, usdValue: null };
+        }
+      }),
+    );
+    const totalUsd = balancesWithUsd.reduce(
+      (sum, b) => sum + (b.usdValue ? parseFloat(b.usdValue) : 0),
+      0,
+    );
+    return { balances: balancesWithUsd, totalUsd: totalUsd.toFixed(2) };
+  }
+}
+
+
+
+Previous file below so paste the updated file:
+
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 @Injectable()
