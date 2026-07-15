@@ -1,7 +1,3 @@
-Update portfolio.service.ts
-
-Add the BinanceAdapter dependency and extend getPortfolio()
-
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BinanceAdapter } from '../trading/adapters/binance.adapter';
@@ -53,35 +49,6 @@ export class PortfolioService {
       0,
     );
     return { balances: balancesWithUsd, totalUsd: totalUsd.toFixed(2) };
-  }
-}
-
-
-
-Previous file below so paste the updated file:
-
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-@Injectable()
-export class PortfolioService {
-  constructor(private prisma: PrismaService) {}
-  // Portfolio is derived, never stored — this is the read path for the
-  // project's core rule that balances only exist as replayable ledger state.
-  async getPortfolio(userId: string) {
-    const assets = await this.prisma.ledgerEntry.groupBy({
-      by: ['asset'],
-      where: { userId },
-    });
-    const balances = await Promise.all(
-      assets.map(async ({ asset }: { asset: string }) => {
-        const latest = await this.prisma.ledgerEntry.findFirst({
-          where: { userId, asset },
-          orderBy: { createdAt: 'desc' },
-        });
-        return { asset, balance: latest?.balanceAfter ?? '0' };
-      }),
-    );
-    return { balances };
   }
   async getRecentActivity(userId: string, limit = 10) {
     const entries = await this.prisma.ledgerEntry.findMany({
