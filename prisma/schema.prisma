@@ -105,6 +105,30 @@ enum TicketStatus {
   @@schema("marvics")
 }
 
+enum SubscriptionPlan {
+  TELEGRAM_2WEEK
+  TELEGRAM_1MONTH
+  TELEGRAM_3MONTH
+  SIGNAL_1MONTH
+  BUNDLE_1MONTH
+  BUNDLE_3MONTH
+  @@schema("marvics")
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  NOWPAYMENTS
+  @@schema("marvics")
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  EXPIRED
+  @@schema("marvics")
+}
+
 model User {
   id               String        @id @default(uuid())
   authUserId       String        @unique
@@ -133,6 +157,8 @@ model User {
   notifications     Notification[]
   supportTickets    SupportTicket[]
   kycSubmissions     KycSubmission[]
+  subscriptions      Subscription[]
+  payments           Payment[]
   @@schema("marvics")
 }
 
@@ -403,5 +429,47 @@ model KycSubmission {
   updatedAt          DateTime  @updatedAt
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@schema("marvics")
+}
+
+model Subscription {
+  id                   String            @id @default(uuid())
+  userId               String
+  user                 User              @relation(fields: [userId], references: [id])
+  plan                 SubscriptionPlan
+  telegramActive       Boolean           @default(false)
+  telegramExpiresAt    DateTime?
+  telegramInviteLink   String?
+  telegramInviteUsed   Boolean           @default(false)
+  telegramJoinDate     DateTime?
+  telegramUserId       String?
+  signalActive         Boolean           @default(false)
+  signalExpiresAt      DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  payments             Payment[]
+  @@index([userId])
+  @@index([telegramExpiresAt])
+  @@index([signalExpiresAt])
+  @@schema("marvics")
+}
+
+model Payment {
+  id                String           @id @default(uuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id])
+  subscriptionId     String?
+  subscription       Subscription?    @relation(fields: [subscriptionId], references: [id])
+  provider          PaymentProvider
+  providerRef       String
+  plan              SubscriptionPlan
+  amount            Decimal
+  currency          String
+  status            PaymentStatus    @default(PENDING)
+  rawWebhookPayload Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  @@unique([provider, providerRef])
+  @@index([userId, createdAt])
   @@schema("marvics")
 }
