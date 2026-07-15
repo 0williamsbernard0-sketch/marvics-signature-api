@@ -1,5 +1,5 @@
 // src/modules/subscriptions/subscriptions.controller.ts
-import { Body, Controller, Headers, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { RawBodyRequest } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -27,6 +27,9 @@ export class SubscriptionsController {
   // path specifically, same pattern likely already used for the Tatum webhook.
   @Post('webhooks/paystack')
   async paystackWebhook(@Req() req: RawBodyRequest<Request>, @Headers('x-paystack-signature') sig: string) {
+    if (!req.rawBody) {
+      throw new BadRequestException('Missing raw request body');
+    }
     return this.subs.handlePaystackWebhook(req.rawBody, sig);
   }
 
