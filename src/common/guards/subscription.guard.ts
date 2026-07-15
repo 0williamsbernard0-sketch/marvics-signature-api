@@ -2,7 +2,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SUBSCRIPTION_KEY, SubscriptionFeature } from '../decorators/subscription.decorator';
+import { SUBSCRIPTION_KEY, SubscriptionFeature } from './subscription.decorator';
 
 @Injectable()
 export class SubscriptionGuard implements CanActivate {
