@@ -80,6 +80,10 @@ export class UsersService {
       asset,
       total: total.toString(),
     }));
+    const [activeTelegramSubs, activeSignalSubs] = await Promise.all([
+      this.prisma.subscription.count({ where: { telegramActive: true, telegramExpiresAt: { gt: now } } }),
+      this.prisma.subscription.count({ where: { signalActive: true, signalExpiresAt: { gt: now } } }),
+    ]);
     return {
       users: {
         total: totalUsers,
@@ -95,7 +99,7 @@ export class UsersService {
           : '0',
         balancesByAsset,
       },
-      subscriptions: { status: 'coming_soon' },
+      subscriptions: { activeTelegram: activeTelegramSubs, activeSignal: activeSignalSubs },
       signals: { status: 'coming_soon' },
     };
   }
