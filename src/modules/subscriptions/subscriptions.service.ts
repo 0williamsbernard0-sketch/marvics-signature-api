@@ -7,9 +7,9 @@ import { NowPaymentsService } from './nowpayments.service';
 import { PaymentProvider, PaymentStatus, SubscriptionPlan } from '@prisma/client';
 
 const PLAN_CONFIG: Record<SubscriptionPlan, { days: number; usd: number; grants: ('telegram' | 'signal')[] }> = {
-  TELEGRAM_2WEEK: { days: 14, usd: 15, grants: ['telegram'] },
-  TELEGRAM_1MONTH: { days: 30, usd: 25, grants: ['telegram'] },
-  TELEGRAM_3MONTH: { days: 90, usd: 60, grants: ['telegram'] },
+  TELEGRAM_2WEEK: { days: 14, usd: 20, grants: ['telegram'] },
+  TELEGRAM_1MONTH: { days: 30, usd: 30, grants: ['telegram'] },
+  TELEGRAM_3MONTH: { days: 90, usd: 65, grants: ['telegram'] },
   SIGNAL_1MONTH: { days: 30, usd: 40, grants: ['signal'] },
   BUNDLE_1MONTH: { days: 30, usd: 55, grants: ['telegram', 'signal'] },
   BUNDLE_3MONTH: { days: 90, usd: 140, grants: ['telegram', 'signal'] },
