@@ -192,4 +192,55 @@ export class SubscriptionsService {
       data: { telegramInviteLink: data.result.invite_link },
     });
   }
+
+  // Admin-initiated grant, bypassing payment entirely — used for comps,
+  // support resolutions, etc. Creates a real Subscription row so it behaves
+  // identically to a paid one everywhere else in the system (expiry cron,
+  // /subscriptions/me, feature gating).
+  async grantAccess(userId: string, feature: 'TELEGRAM' | 'SIGNAL' | 'BOTH', days: number) {
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const grantsTelegram = feature === 'TELEGRAM' || feature === 'BOTH';
+    const grantsSignal = feature === 'SIGNAL' || feature === 'BOTH';
+    // `plan` is just a record-keeping label here (not tied to real pricing)
+    // since this bypasses PLAN_CONFIG entirely — closest matching enum value.
+    const planLabel: SubscriptionPlan =
+      grantsTelegram && grantsSignal ? 'BUNDLE_1MONTH' : grantsTelegram ? 'TELEGRAM_1MONTH' : 'SIGNAL_1MONTH';
+    const sub = await this.prisma.subscription.create({
+      data: {
+        userId,
+        plan: planLabel,
+        telegramActive: grantsTelegram,
+        telegramExpiresAt: grantsTelegram ? expiresAt : null,
+        signalActive: grantsSignal,
+        signalExpiresAt: grantsSignal ? expiresAt : null,
+      },
+    });
+    if (grantsTelegram) {
+      await this.generateTelegramInvite(sub.id, userId);
+    }
+    return this.getStatus(userId);
+  }
+
+  // Cuts access immediately by expiring every currently-active row for the
+  // requested feature(s). NOTE: this does not remove the user from the
+  // Telegram channel itself — that only happens via the hourly expiry cron
+  // once telegramExpiresAt has passed, which it now has (set to now()), so
+  // the next cron run will pick it up and ban/unban as normal. If you need
+  // instant Telegram removal, that's a separate manual step for now.
+  async revokeAccess(userId: string, feature: 'TELEGRAM' | 'SIGNAL' | 'BOTH') {
+    const now = new Date();
+    if (feature === 'TELEGRAM' || feature === 'BOTH') {
+      await this.prisma.subscription.updateMany({
+        where: { userId, telegramActive: true },
+        data: { telegramActive: false, telegramExpiresAt: now },
+      });
+    }
+    if (feature === 'SIGNAL' || feature === 'BOTH') {
+      await this.prisma.subscription.updateMany({
+        where: { userId, signalActive: true },
+        data: { signalActive: false, signalExpiresAt: now },
+      });
+    }
+    return this.getStatus(userId);
+  }
 }
