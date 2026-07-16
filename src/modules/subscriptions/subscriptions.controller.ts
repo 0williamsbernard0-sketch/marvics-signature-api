@@ -1,5 +1,5 @@
 // src/modules/subscriptions/subscriptions.controller.ts
-import { Body, Controller, Headers, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { RawBodyRequest } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -9,6 +9,12 @@ import { CreateCheckoutDto } from './dto/create-checkout.dto';
 @Controller('subscriptions')
 export class SubscriptionsController {
   constructor(private subs: SubscriptionsService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  async getMyStatus(@CurrentUser() user: any) {
+    return this.subs.getStatus(user.id);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post('checkout/paystack')
