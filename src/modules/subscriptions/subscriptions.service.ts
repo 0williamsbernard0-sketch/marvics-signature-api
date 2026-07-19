@@ -81,7 +81,15 @@ export class SubscriptionsService {
       },
     });
 
-    const { authorization_url } = await this.paystack.initializeTransaction(email, amountKobo, reference);
+    // Paystack has no idea "back to the app" means anything unless told --
+    // without this, users land on Paystack's own generic success page and
+    // have no way back to the subscription/dashboard flow. The ?ref= param
+    // lets the frontend poll /subscriptions/me until the webhook (which can
+    // land a couple seconds after this redirect) has actually activated it.
+    const frontendUrl = this.config.getOrThrow<string>('FRONTEND_URL');
+    const callbackUrl = `${frontendUrl}/dashboard/subscription?ref=${reference}`;
+
+    const { authorization_url } = await this.paystack.initializeTransaction(email, amountKobo, reference, callbackUrl);
     return { checkoutUrl: authorization_url, paymentId: payment.id };
   }
 
