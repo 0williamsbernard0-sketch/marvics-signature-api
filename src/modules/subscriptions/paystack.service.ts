@@ -10,14 +10,14 @@ export class PaystackService {
     this.secretKey = this.config.getOrThrow<string>('PAYSTACK_SECRET_KEY');
   }
 
-  async initializeTransaction(email: string, amountKobo: number, reference: string) {
+  async initializeTransaction(email: string, amountKobo: number, reference: string, callbackUrl: string) {
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.secretKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ email, amount: amountKobo, reference }),
+      body: JSON.stringify({ email, amount: amountKobo, reference, callback_url: callbackUrl }),
     });
     const data = await res.json();
     if (!res.ok || !data.status) {
